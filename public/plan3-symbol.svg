@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Plan3 Three Steps symbol</title>
+  <desc id="desc">A flat geometric mark made from three nested right-angle steps.</desc>
+  <g fill="#111111">
+    <path d="M88 16h152v152h-40V56H88V16Z"/>
+    <path d="M48 64h144v144h-40V104H48V64Z"/>
+    <path d="M8 112h136v136H72v-40h32v-56H48v96H8V112Z"/>
+  </g>
+</svg>
