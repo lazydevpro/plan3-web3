@@ -3,7 +3,7 @@
 **Status:** Implementation brief  
 **Date:** September 13, 2026  
 **Scope:** CoinMarketCap API capabilities that can become reusable Plan3 widgets, agent inputs, and hackathon demo flows  
-**Hackathon entitlement:** The supplied Startup key has full API feature access. All widget families in this document are therefore available for the hackathon build.
+**Hackathon entitlement:** The supplied Startup key unlocks many advanced families, but live endpoint probes found some 403 responses. Treat the catalog below as research, not a guarantee that every endpoint is enabled on this key.
 
 ## Executive summary
 
@@ -19,7 +19,7 @@ The best hackathon strategy is not to ship dozens of isolated cards. It is to sh
 2. **Derived widgets** combine multiple CMC fields into a transparent calculation.
 3. **Agent-maintained widgets** explain a condition, propose a rule, or update a thesis without hiding the underlying evidence.
 
-The recommended demo board is a **Market Decision Room** built from 10–12 widgets: Market Pulse, Watchlist, Asset Chart, Market Regime, Category Rotation, Fear & Greed, Altcoin Season, Derivatives Crowding, Liquidation Pulse, DEX Safety, Thesis, and Agent Monitor. The hackathon key's full-catalog access also makes CMC AI, Content, Community, advanced exchange data, and RWA market pairs available. CMC AI can therefore enrich the demo, although Plan3's core reasoning flow should continue to work without it.[^2]
+The recommended demo board is a **Market Decision Room** built from 10–12 widgets: Market Pulse, Watchlist, Asset Chart, Market Regime, Category Rotation, Fear & Greed, Altcoin Season, Derivatives Crowding, Liquidation Pulse, DEX Safety, Thesis, and Agent Monitor. Advanced features should appear only when the live key confirms access. The current build keeps CMC AI, discovery, and airdrop widgets in an explicit locked state after entitlement failures.[^2]
 
 ## 1. What the API actually offers
 
@@ -44,14 +44,14 @@ CMC also launched a beta WebSocket endpoint in 2026. Its centralized-market chan
 
 ## 2. Availability model Plan3 should use
 
-Endpoint availability is not one simple ladder. Some sophisticated new features are broadly available while older discovery/content endpoints remain gated in the public pricing matrix. For this hackathon, the supplied Startup key has access to the complete catalog. Plan3 should still use **capability detection**, not hard-code a plan name into the UI, so the product remains correct when users later connect ordinary CMC keys.
+Endpoint availability is not one simple ladder. Some sophisticated new features are broadly available while older discovery/content endpoints remain gated in the public pricing matrix. Live probes of the supplied Startup key found 403 responses for CMC AI, selected discovery and airdrop endpoints, and exchange listings. Plan3 uses **capability detection**, not a plan-name assumption, so the UI stays honest when entitlements differ.
 
 ### Hackathon access rule
 
 For the current build:
 
-- Treat every documented CMC REST family as enabled.
-- Treat CMC AI, Content, Community, RWA market pairs, advanced exchange data, discovery endpoints, holder analytics and derivatives as usable.
+- Probe each implemented CMC family with the actual key before presenting it as usable.
+- Treat CMC AI, discovery, airdrops, and exchange listings as unavailable with the current key until a later probe succeeds.
 - Probe actual access once during server startup and record the result in a capability registry.
 - If a specific endpoint unexpectedly returns `403` or another entitlement error, degrade only that widget instead of failing the board.
 - Keep official public plan labels in the catalog as productization notes, not hackathon blockers.

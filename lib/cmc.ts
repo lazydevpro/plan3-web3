@@ -53,6 +53,45 @@ export type CmcRwaAsset = {
   updatedAt: string | null;
 };
 
+export type CmcHistorySeries = {
+  id: number;
+  name: string;
+  symbol: string;
+  points: Array<{ timestamp: string; price: number; volume24h: number | null; marketCap: number | null }>;
+};
+
+export type CmcLiquidationLeader = {
+  id: number;
+  name: string;
+  symbol: string | null;
+  total24h: number | null;
+  longs24h: number | null;
+  shorts24h: number | null;
+};
+
+export type CmcDexSnapshot = {
+  token: {
+    name: string;
+    symbol: string;
+    address: string;
+    platform: string;
+    price: number | null;
+    marketCap: number | null;
+    liquidity: number | null;
+    riskLevel: string | null;
+    volume24h: number | null;
+    transactions24h: number | null;
+    buys24h: number | null;
+    sells24h: number | null;
+    change24h: number | null;
+  } | null;
+  pools: Array<{ address: string; pair: string; venue: string; liquidity: number | null; volume24h: number | null }>;
+  security: { level: string | null; category: string | null; checks: Array<{ label: string; hit: boolean }> } | null;
+  holderCount: number | null;
+  swaps: Array<{ timestamp: string; side: string; pair: string; venue: string; valueUsd: number | null }>;
+  liquidityChanges: Array<{ timestamp: string; side: string; pair: string; venue: string; valueUsd: number | null }>;
+};
+
 export type CmcOverview = {
   mode: "full" | "public";
   retrievedAt: string;
@@ -61,6 +100,32 @@ export type CmcOverview = {
   categories: CmcCategory[];
   benchmarks: { cmc20: CmcBenchmark | null; cmc100: CmcBenchmark | null };
   rwaAssets: CmcRwaAsset[];
+  history: CmcHistorySeries[];
+  assetProfile: {
+    name: string;
+    symbol: string;
+    description: string | null;
+    category: string | null;
+    logo: string | null;
+    website: string | null;
+    tags: string[];
+  } | null;
+  conversion: { from: string; amount: number; usdValue: number | null; updatedAt: string | null } | null;
+  exchangeDirectory: Array<{ id: number; name: string; slug: string; active: boolean }>;
+  fiats: Array<{ id: number; name: string; symbol: string; sign: string | null }>;
+  derivativeVenues: Array<{ id: number; name: string; rank: number | null; openInterest: number | null; volume24h: number | null; marketPairs: number | null }>;
+  liquidationLeaders: { assets: CmcLiquidationLeader[]; exchanges: CmcLiquidationLeader[] };
+  dex: CmcDexSnapshot;
+  rwaDetail: {
+    name: string;
+    symbol: string;
+    price: number | null;
+    marketCap: number | null;
+    volume24h: number | null;
+    tokens: Array<{ name: string; symbol: string; issuer: string; price: number | null; marketCap: number | null; volume24h: number | null }>;
+    issuers: Array<{ id: string; name: string; website: string | null; tokenCount: number | null }>;
+  } | null;
+  capabilities: Array<{ name: string; status: "live" | "locked"; detail: string }>;
   apiUsage: {
     monthlyLimit: number | null;
     monthlyUsed: number | null;
@@ -128,21 +193,32 @@ function findUsdQuote(value: unknown): Record<string, unknown> {
   return record(quotes.USD ?? Object.values(quotes)[0]);
 }
 
+const endpointCache = new Map<string, { until: number; promise: Promise<Record<string, unknown>> }>();
+
 async function requestCmc(path: string, apiKey?: string, revalidate = 60): Promise<Record<string, unknown>> {
+  const cacheKey = `${apiKey ? "keyed" : "public"}:${path}`;
+  const cached = endpointCache.get(cacheKey);
+  if (cached && cached.until > Date.now()) return cached.promise;
   const base = apiKey
     ? "https://pro-api.coinmarketcap.com"
     : "https://pro-api.coinmarketcap.com/public-api";
-  const response = await fetch(`${base}${path}`, {
-    headers: apiKey ? { Accept: "application/json", "X-CMC_PRO_API_KEY": apiKey } : { Accept: "application/json" },
-    next: { revalidate },
+  const promise = (async () => {
+    const response = await fetch(`${base}${path}`, {
+      headers: apiKey ? { Accept: "application/json", "X-CMC_PRO_API_KEY": apiKey } : { Accept: "application/json" },
+      next: { revalidate },
+    });
+    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
+    const payload = record(await response.json());
+    const status = record(payload.status);
+    if (numberOrNull(status.error_code) && numberOrNull(status.error_code) !== 0) {
+      throw new Error(stringOrNull(status.error_message) ?? "CoinMarketCap request failed");
+    }
+    return payload;
   });
-  if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-  const payload = record(await response.json());
-  const status = record(payload.status);
-  if (numberOrNull(status.error_code) && numberOrNull(status.error_code) !== 0) {
-    throw new Error(stringOrNull(status.error_message) ?? "CoinMarketCap request failed");
-  }
-  return payload;
+  const pending = promise();
+  endpointCache.set(cacheKey, { until: Date.now() + revalidate * 1000, promise: pending });
+  try { return await pending; }
+  catch (error) { endpointCache.delete(cacheKey); throw error; }
 }
 
 function parseAssets(payload: Record<string, unknown>): CmcAssetQuote[] {
@@ -306,68 +382,307 @@ function parseDerivatives(payload: Record<string, unknown>): CmcOverview["deriva
   };
 }
 
+function parseHistory(payload: Record<string, unknown>): CmcHistorySeries[] {
+  return Object.values(record(payload.data)).map((value) => {
+    const item = record(value);
+    return {
+      id: numberOrNull(item.id) ?? 0,
+      name: stringOrNull(item.name) ?? "Unknown",
+      symbol: stringOrNull(item.symbol) ?? "—",
+      points: array(item.quotes).map((entry) => {
+        const point = record(entry);
+        const quote = findUsdQuote(point);
+        return {
+          timestamp: stringOrNull(point.timestamp) ?? stringOrNull(quote.timestamp) ?? "",
+          price: numberOrNull(quote.price) ?? 0,
+          volume24h: numberOrNull(quote.volume_24h),
+          marketCap: numberOrNull(quote.market_cap),
+        };
+      }).filter((point) => point.timestamp && point.price > 0),
+    };
+  });
+}
+
+function parseProfile(payload: Record<string, unknown>): CmcOverview["assetProfile"] {
+  const item = record(record(payload.data)["5426"]);
+  if (!Object.keys(item).length) return null;
+  const urls = record(item.urls);
+  return {
+    name: stringOrNull(item.name) ?? "Solana",
+    symbol: stringOrNull(item.symbol) ?? "SOL",
+    description: stringOrNull(item.description),
+    category: stringOrNull(item.category),
+    logo: stringOrNull(item.logo),
+    website: stringOrNull(array(urls.website)[0]),
+    tags: array(item.tags).map((tag) => typeof tag === "string" ? tag : stringOrNull(record(tag).name)).filter((tag): tag is string => Boolean(tag)).slice(0, 8),
+  };
+}
+
+function parseConversion(payload: Record<string, unknown>): CmcOverview["conversion"] {
+  const data = record(payload.data);
+  const quote = findUsdQuote(data);
+  if (!Object.keys(data).length) return null;
+  return {
+    from: stringOrNull(data.symbol) ?? "BTC",
+    amount: numberOrNull(data.amount) ?? 1,
+    usdValue: numberOrNull(quote.price),
+    updatedAt: stringOrNull(quote.last_updated),
+  };
+}
+
+function parseExchangeDirectory(payload: Record<string, unknown>): CmcOverview["exchangeDirectory"] {
+  return array(payload.data).map((value) => {
+    const item = record(value);
+    return {
+      id: numberOrNull(item.id) ?? 0,
+      name: stringOrNull(item.name) ?? "Unknown",
+      slug: stringOrNull(item.slug) ?? "unknown",
+      active: numberOrNull(item.is_active) !== 0,
+    };
+  }).filter((item) => item.id > 0);
+}
+
+function parseFiats(payload: Record<string, unknown>): CmcOverview["fiats"] {
+  return array(payload.data).map((value) => {
+    const item = record(value);
+    return {
+      id: numberOrNull(item.id) ?? 0,
+      name: stringOrNull(item.name) ?? "Unknown",
+      symbol: stringOrNull(item.symbol) ?? "—",
+      sign: stringOrNull(item.sign),
+    };
+  }).filter((item) => item.id > 0);
+}
+
+function parseDerivativeVenues(payload: Record<string, unknown>): CmcOverview["derivativeVenues"] {
+  return array(record(payload.data).exchanges).map((value) => {
+    const item = record(value);
+    const quote = record(array(item.quotes)[0]);
+    return {
+      id: numberOrNull(item.exchange_id) ?? 0,
+      name: stringOrNull(item.exchange_name) ?? "Unknown",
+      rank: numberOrNull(item.rank),
+      openInterest: numberOrNull(quote.open_interest_usd),
+      volume24h: numberOrNull(quote.derivative_volume_usd),
+      marketPairs: numberOrNull(item.num_market_pairs),
+    };
+  });
+}
+
+function parseLiquidationLeaders(payload: Record<string, unknown>, kind: "assets" | "exchanges"): CmcLiquidationLeader[] {
+  const data = record(payload.data);
+  const items = kind === "assets" ? array(data.cryptocurrencies) : array(data.exchanges);
+  return items.map((value) => {
+    const item = record(value);
+    const quote = record(array(item.quotes)[0]);
+    return {
+      id: numberOrNull(kind === "assets" ? item.crypto_id : item.exchange_id) ?? 0,
+      name: stringOrNull(item.name) ?? "Unknown",
+      symbol: stringOrNull(item.symbol),
+      total24h: numberOrNull(quote.total_liquidations_24h),
+      longs24h: numberOrNull(quote.long_liquidations_24h),
+      shorts24h: numberOrNull(quote.short_liquidations_24h),
+    };
+  });
+}
+
+function parseDexToken(payload: Record<string, unknown>): Pick<CmcDexSnapshot, "token" | "pools"> {
+  const data = record(payload.data);
+  if (!Object.keys(data).length) return { token: null, pools: [] };
+  const stats = record(array(data.sts).find((entry) => record(entry).tp === "24h"));
+  return {
+    token: {
+      name: stringOrNull(data.n) ?? "Unknown",
+      symbol: stringOrNull(data.sym) ?? "—",
+      address: stringOrNull(data.addr) ?? "",
+      platform: stringOrNull(data.plt) ?? "Unknown",
+      price: numberOrNull(data.p),
+      marketCap: numberOrNull(data.mcap),
+      liquidity: numberOrNull(data.liqUsd),
+      riskLevel: stringOrNull(data.rl),
+      volume24h: numberOrNull(stats.vu),
+      transactions24h: numberOrNull(stats.txs),
+      buys24h: numberOrNull(stats.nb),
+      sells24h: numberOrNull(stats.ns),
+      change24h: numberOrNull(stats.pc) == null ? null : (numberOrNull(stats.pc) ?? 0) * 100,
+    },
+    pools: array(data.pls).slice(0, 6).map((value) => {
+      const item = record(value);
+      const token0 = record(item.t0);
+      const token1 = record(item.t1);
+      return {
+        address: stringOrNull(item.addr ?? item.fa) ?? "",
+        pair: `${stringOrNull(token0.sym) ?? "?"}/${stringOrNull(token1.sym) ?? "?"}`,
+        venue: stringOrNull(item.exn) ?? "Unknown",
+        liquidity: numberOrNull(item.liqUsd),
+        volume24h: numberOrNull(item.v24),
+      };
+    }),
+  };
+}
+
+function parseDexSecurity(payload: Record<string, unknown>): CmcDexSnapshot["security"] {
+  const raw = payload.data;
+  const item = record(Array.isArray(raw) ? raw[0] : raw);
+  if (!Object.keys(item).length) return null;
+  return {
+    level: stringOrNull(item.securityLevel),
+    category: stringOrNull(item.categoryLevel),
+    checks: array(item.securityItems).slice(0, 8).map((value) => {
+      const check = record(value);
+      return { label: stringOrNull(check.code) ?? "Security check", hit: Boolean(check.isHit) };
+    }),
+  };
+}
+
+function parseDexSwaps(payload: Record<string, unknown>): CmcDexSnapshot["swaps"] {
+  return array(record(payload.data).swaps).slice(0, 6).map((value) => {
+    const item = record(value);
+    return {
+      timestamp: new Date(numberOrNull(item.ts) ?? Date.now()).toISOString(),
+      side: stringOrNull(item.tp) ?? "swap",
+      pair: `${stringOrNull(item.t0s) ?? "?"}/${stringOrNull(item.t1s) ?? "?"}`,
+      venue: stringOrNull(item.en) ?? "Unknown",
+      valueUsd: numberOrNull(item.v),
+    };
+  });
+}
+
+function parseLiquidityChanges(payload: Record<string, unknown>): CmcDexSnapshot["liquidityChanges"] {
+  return array(record(payload.data).lcs).slice(0, 6).map((value) => {
+    const item = record(value);
+    return {
+      timestamp: new Date(numberOrNull(item.ts) ?? Date.now()).toISOString(),
+      side: stringOrNull(item.tp) ?? "change",
+      pair: `${stringOrNull(item.t0s) ?? "?"}/${stringOrNull(item.t1s) ?? "?"}`,
+      venue: stringOrNull(item.en) ?? "Unknown",
+      valueUsd: numberOrNull(item.tu),
+    };
+  });
+}
+
+function parseRwaDetail(quotePayload: Record<string, unknown>, issuerPayload: Record<string, unknown>): CmcOverview["rwaDetail"] {
+  const item = record(array(record(quotePayload.data).rwa_assets)[0]);
+  if (!Object.keys(item).length) return null;
+  const quote = record(array(item.quotes)[0]);
+  return {
+    name: stringOrNull(item.name) ?? "Unknown",
+    symbol: stringOrNull(item.symbol) ?? "—",
+    price: numberOrNull(item.average_tokenized_price ?? quote.average_tokenized_price),
+    marketCap: numberOrNull(item.tokenized_market_cap ?? quote.tokenized_market_cap),
+    volume24h: numberOrNull(item.tokenized_volume_24h ?? quote.tokenized_volume_24h),
+    tokens: array(item.tokens).slice(0, 8).map((value) => {
+      const token = record(value);
+      return {
+        name: stringOrNull(token.name) ?? "Unknown",
+        symbol: stringOrNull(token.symbol) ?? "—",
+        issuer: stringOrNull(token.issuer_name) ?? "Unknown",
+        price: numberOrNull(token.price),
+        marketCap: numberOrNull(token.market_cap),
+        volume24h: numberOrNull(token.volume_24h),
+      };
+    }),
+    issuers: array(record(issuerPayload.data).issuers).slice(0, 8).map((value) => {
+      const issuer = record(value);
+      return {
+        id: stringOrNull(issuer.issuer_id) ?? "unknown",
+        name: stringOrNull(issuer.name) ?? "Unknown",
+        website: stringOrNull(issuer.website),
+        tokenCount: numberOrNull(issuer.num_tokens),
+      };
+    }),
+  };
+}
+
 export async function getCmcOverview(): Promise<CmcOverview> {
   const apiKey = process.env.CMC_PRO_API_KEY?.trim();
   const errors: string[] = [];
-  const coreTasks = [
-    requestCmc(`/v3/cryptocurrency/quotes/latest?id=${ASSET_IDS}&convert=USD`, apiKey),
-    requestCmc("/v1/global-metrics/quotes/latest?convert=USD", apiKey),
-    requestCmc("/v3/fear-and-greed/latest", apiKey, 300),
-    requestCmc("/v1/altcoin-season-index/latest", apiKey, 300),
-    requestCmc("/v3/cryptocurrency/listings/latest?limit=30&convert=USD", apiKey),
-    requestCmc("/v1/cryptocurrency/categories?limit=16&convert=USD", apiKey, 300),
-    requestCmc("/v3/index/cmc20-latest", apiKey, 300),
-    requestCmc("/v3/index/cmc100-latest", apiKey, 300),
-  ];
-  const premiumTasks = apiKey ? [
-    requestCmc("/v5/derivatives/liquidations/quotes/latest?convert=USD", apiKey),
-    requestCmc("/v5/cryptocurrency/derivatives/market-pairs/list/latest?crypto_id=5426&limit=100&convert=USD", apiKey),
-    requestCmc("/v5/real-world-assets/assets/list?limit=8", apiKey, 300),
-    requestCmc("/v1/key/info", apiKey, 300),
-  ] : [];
-  const results = await Promise.allSettled([...coreTasks, ...premiumTasks]);
-  const [assetsResult, globalResult, fearResult, seasonResult, listingsResult, categoriesResult, cmc20Result, cmc100Result] = results;
-  const [liquidationsResult, derivativesResult, rwaResult, keyInfoResult] = results.slice(8);
-
+  const jupAddress = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
+  const endpoints: Record<string, [string, number]> = {
+    assets: [`/v3/cryptocurrency/quotes/latest?id=${ASSET_IDS}&convert=USD`, 60],
+    global: ["/v1/global-metrics/quotes/latest?convert=USD", 60],
+    fear: ["/v3/fear-and-greed/latest", 300],
+    season: ["/v1/altcoin-season-index/latest", 300],
+    listings: ["/v3/cryptocurrency/listings/latest?limit=30&convert=USD", 60],
+    categories: ["/v1/cryptocurrency/categories?limit=16&convert=USD", 300],
+    cmc20: ["/v3/index/cmc20-latest", 300],
+    cmc100: ["/v3/index/cmc100-latest", 300],
+  };
+  if (apiKey) Object.assign(endpoints, {
+    liquidations: ["/v5/derivatives/liquidations/quotes/latest?convert=USD", 60],
+    derivatives: ["/v5/cryptocurrency/derivatives/market-pairs/list/latest?crypto_id=5426&limit=100&convert=USD", 60],
+    rwa: ["/v5/real-world-assets/assets/list?limit=8", 300],
+    keyInfo: ["/v1/key/info", 300],
+    history: ["/v3/cryptocurrency/quotes/historical?id=1,1027,5426&count=14&interval=daily&convert=USD", 300],
+    profile: ["/v2/cryptocurrency/info?id=5426", 3600],
+    conversion: ["/v2/tools/price-conversion?amount=1&id=1&convert=USD", 300],
+    exchangeDirectory: ["/v1/exchange/map?limit=8", 3600],
+    fiats: ["/v1/fiat/map?limit=12", 3600],
+    derivativeVenues: ["/v5/exchange/derivatives/list?limit=8", 300],
+    liquidationAssets: ["/v5/derivatives/liquidations/cryptocurrency/list/latest?limit=6&convert=USD", 60],
+    liquidationExchanges: ["/v5/derivatives/liquidations/exchange/list/latest?limit=6&convert=USD", 60],
+    dexToken: [`/v1/dex/token?platform=solana&address=${jupAddress}`, 60],
+    dexSecurity: [`/v1/dex/security/detail?platformName=solana&address=${jupAddress}`, 300],
+    dexHolders: [`/v1/dex/holders/count?platform=solana&tokenAddress=${jupAddress}`, 300],
+    dexSwaps: [`/v1/dex/tokens/transactions?platform=solana&address=${jupAddress}&limit=6`, 60],
+    dexLiquidity: [`/v1/dex/liquidity-change/list?platform=solana&address=${jupAddress}&sortBy=ts&sortType=desc`, 60],
+    rwaGold: ["/v5/real-world-assets/quotes/latest?rwa_id=1&convert=USD", 300],
+    rwaIssuers: ["/v5/real-world-assets/issuers/list?limit=8", 3600],
+  });
+  const entries = Object.entries(endpoints);
+  const settled = await Promise.allSettled(entries.map(([, [path, revalidate]]) => requestCmc(path, apiKey, revalidate)));
+  const results: Record<string, Record<string, unknown>> = {};
+  entries.forEach(([name], index) => {
+    const result = settled[index];
+    if (result.status === "fulfilled") results[name] = result.value;
+    else errors.push(`${name}: ${result.reason instanceof Error ? result.reason.message : "unavailable"}`);
+  });
   const emptyLiquidations: CmcOverview["liquidations"] = { total1h: null, total4h: null, total24h: null, longs24h: null, shorts24h: null, updatedAt: null, available: false };
   const emptyDerivatives: CmcOverview["derivatives"] = { fundingRate: null, openInterest: null, venue: null, pair: null, updatedAt: null, available: false };
-  let liquidations = emptyLiquidations;
-  let derivatives = emptyDerivatives;
-  let rwaAssets: CmcRwaAsset[] = [];
-  let apiUsage: CmcOverview["apiUsage"] = null;
-
-  if (apiKey) {
-    if (liquidationsResult?.status === "fulfilled") liquidations = parseLiquidations(liquidationsResult.value);
-    else errors.push(`Liquidations: ${liquidationsResult.reason instanceof Error ? liquidationsResult.reason.message : "unavailable"}`);
-    if (derivativesResult?.status === "fulfilled") derivatives = parseDerivatives(derivativesResult.value);
-    else errors.push(`Derivatives: ${derivativesResult.reason instanceof Error ? derivativesResult.reason.message : "unavailable"}`);
-    if (rwaResult?.status === "fulfilled") rwaAssets = parseRwaAssets(rwaResult.value);
-    else errors.push(`RWA: ${rwaResult.reason instanceof Error ? rwaResult.reason.message : "unavailable"}`);
-    if (keyInfoResult?.status === "fulfilled") apiUsage = parseApiUsage(keyInfoResult.value);
-    else errors.push(`API usage: ${keyInfoResult.reason instanceof Error ? keyInfoResult.reason.message : "unavailable"}`);
-  }
-
-  for (const [label, result] of [["Quotes", assetsResult], ["Global metrics", globalResult], ["Fear & Greed", fearResult], ["Altcoin Season", seasonResult], ["Listings", listingsResult], ["Categories", categoriesResult], ["CMC20", cmc20Result], ["CMC100", cmc100Result]] as const) {
-    if (result.status === "rejected") errors.push(`${label}: ${result.reason instanceof Error ? result.reason.message : "unavailable"}`);
-  }
-
+  const dexToken = results.dexToken ? parseDexToken(results.dexToken) : { token: null, pools: [] };
   return {
     mode: apiKey ? "full" : "public",
     retrievedAt: new Date().toISOString(),
-    assets: assetsResult.status === "fulfilled" ? parseAssets(assetsResult.value) : [],
-    listings: listingsResult.status === "fulfilled" ? parseAssets(listingsResult.value) : [],
-    categories: categoriesResult.status === "fulfilled" ? parseCategories(categoriesResult.value) : [],
+    assets: results.assets ? parseAssets(results.assets) : [],
+    listings: results.listings ? parseAssets(results.listings) : [],
+    categories: results.categories ? parseCategories(results.categories) : [],
     benchmarks: {
-      cmc20: cmc20Result.status === "fulfilled" ? parseBenchmark(cmc20Result.value) : null,
-      cmc100: cmc100Result.status === "fulfilled" ? parseBenchmark(cmc100Result.value) : null,
+      cmc20: results.cmc20 ? parseBenchmark(results.cmc20) : null,
+      cmc100: results.cmc100 ? parseBenchmark(results.cmc100) : null,
     },
-    rwaAssets,
-    apiUsage,
-    global: globalResult.status === "fulfilled" ? parseGlobal(globalResult.value) : { totalMarketCap: null, totalVolume24h: null, btcDominance: null, ethDominance: null, marketCapChange24h: null },
-    fearAndGreed: fearResult.status === "fulfilled" ? parseIndex(fearResult.value, "fear") : { value: null, label: null, updatedAt: null },
-    altcoinSeason: seasonResult.status === "fulfilled" ? parseIndex(seasonResult.value, "season") : { value: null, label: null, updatedAt: null },
-    liquidations,
-    derivatives,
+    rwaAssets: results.rwa ? parseRwaAssets(results.rwa) : [],
+    history: results.history ? parseHistory(results.history) : [],
+    assetProfile: results.profile ? parseProfile(results.profile) : null,
+    conversion: results.conversion ? parseConversion(results.conversion) : null,
+    exchangeDirectory: results.exchangeDirectory ? parseExchangeDirectory(results.exchangeDirectory) : [],
+    fiats: results.fiats ? parseFiats(results.fiats) : [],
+    derivativeVenues: results.derivativeVenues ? parseDerivativeVenues(results.derivativeVenues) : [],
+    liquidationLeaders: {
+      assets: results.liquidationAssets ? parseLiquidationLeaders(results.liquidationAssets, "assets") : [],
+      exchanges: results.liquidationExchanges ? parseLiquidationLeaders(results.liquidationExchanges, "exchanges") : [],
+    },
+    dex: {
+      ...dexToken,
+      security: results.dexSecurity ? parseDexSecurity(results.dexSecurity) : null,
+      holderCount: results.dexHolders ? numberOrNull(record(results.dexHolders.data).count) : null,
+      swaps: results.dexSwaps ? parseDexSwaps(results.dexSwaps) : [],
+      liquidityChanges: results.dexLiquidity ? parseLiquidityChanges(results.dexLiquidity) : [],
+    },
+    rwaDetail: results.rwaGold ? parseRwaDetail(results.rwaGold, results.rwaIssuers ?? {}) : null,
+    capabilities: [
+      { name: "Market, indices and categories", status: results.assets && results.categories ? "live" : "locked", detail: "Latest quotes, rankings and sector context" },
+      { name: "Historical comparisons", status: results.history ? "live" : "locked", detail: "Daily BTC, ETH and SOL prices" },
+      { name: "Derivatives and liquidations", status: results.derivativeVenues && results.liquidationAssets ? "live" : "locked", detail: "Venues, open interest and forced closures" },
+      { name: "DEX token intelligence", status: results.dexToken && results.dexSecurity ? "live" : "locked", detail: "JUP pools, swaps, holders and risk checks" },
+      { name: "Tokenized real-world assets", status: results.rwaGold ? "live" : "locked", detail: "Gold tokens and issuers" },
+      { name: "CMC AI, discovery and airdrops", status: "locked", detail: "These endpoints returned 403 for this key during entitlement checks" },
+    ],
+    apiUsage: results.keyInfo ? parseApiUsage(results.keyInfo) : null,
+    global: results.global ? parseGlobal(results.global) : { totalMarketCap: null, totalVolume24h: null, btcDominance: null, ethDominance: null, marketCapChange24h: null },
+    fearAndGreed: results.fear ? parseIndex(results.fear, "fear") : { value: null, label: null, updatedAt: null },
+    altcoinSeason: results.season ? parseIndex(results.season, "season") : { value: null, label: null, updatedAt: null },
+    liquidations: results.liquidations ? parseLiquidations(results.liquidations) : emptyLiquidations,
+    derivatives: results.derivatives ? parseDerivatives(results.derivatives) : emptyDerivatives,
     errors,
   };
 }

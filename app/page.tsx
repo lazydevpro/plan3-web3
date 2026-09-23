@@ -2,22 +2,27 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import {
-  Activity, BadgeDollarSign, BarChart3, Bell, Bot, Boxes, BrainCircuit, Check,
-  ChartNoAxesCombined, ChevronDown, CircleAlert, Clock3, Command,
-  Crosshair, Database, ExternalLink, Eye, Flame, Focus, Gauge, Grid2X2,
-  History, Landmark, Layers3, Link2, ListOrdered, Maximize2, Menu,
+  Activity, BadgeDollarSign, BarChart3, Bot, Boxes, BrainCircuit, Check,
+  ChartNoAxesCombined, CircleAlert, Clock3, Command,
+  Crosshair, Database, Eye, Flame, Focus, Gauge, Grid2X2,
+  History, Landmark, Layers3, ListOrdered, Menu,
   MousePointer2, PanelRight, PieChart, Plus, RefreshCw, Scale, Search,
   ServerCog, Share2, ShieldAlert, Sparkles, Table2, TrendingDown, TrendingUp,
-  Trophy, WalletCards, Waves, X, Zap,
+  Trophy, WalletCards, Waves, X, Zap, ArrowUp, ArrowDown, Copy, RotateCcw, Maximize2,
+  LockKeyhole, BookOpen, Coins, Globe2, Radar, ShieldCheck, Users, BadgeCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ExtendedWidget, isExtendedWidget } from "@/components/extended-widgets";
 import { useCmcMarket } from "@/hooks/use-cmc-market";
 import type { CmcAssetQuote, CmcOverview } from "@/lib/cmc";
+import { BOARD_STORAGE_KEY, decodeBoard, defaultBoard, encodeBoard, parseBoard, isWidgetId } from "@/lib/plan3-board";
+import type { BoardProposal, BoardState, WidgetId } from "@/lib/plan3-board";
 
 type Mode = "Build" | "Live" | "Focus";
-type WidgetId = "market" | "watchlist" | "regime" | "fear" | "season" | "liquidations" | "funding" | "thesis" | "agent" | "leaderboard" | "performance" | "movers" | "breadth" | "dominance" | "volume" | "valuation" | "venues" | "categories" | "benchmark" | "rwa" | "stablecoins" | "apihealth";
 
-const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: typeof Activity; access: "Live" | "Full access" | "Plan3" }> = [
+const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: typeof Activity; access: "Live" | "Full access" | "Plan3" | "Locked" }> = [
   { id: "market", name: "Asset snapshot", detail: "Price, volume, market cap and momentum", icon: Activity, access: "Live" },
   { id: "watchlist", name: "Smart watchlist", detail: "Comparable market context for selected assets", icon: Eye, access: "Live" },
   { id: "leaderboard", name: "Market leaderboard", detail: "Top assets ranked by market capitalization", icon: ListOrdered, access: "Live" },
@@ -40,22 +45,48 @@ const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: t
   { id: "apihealth", name: "API credit governor", detail: "Minute requests and monthly CMC credit usage", icon: ServerCog, access: "Full access" },
   { id: "thesis", name: "Thesis", detail: "Human-owned conclusion and confidence", icon: Sparkles, access: "Plan3" },
   { id: "agent", name: "Agent monitor", detail: "Inspectable rule with human approval", icon: Bot, access: "Plan3" },
+  { id: "chart", name: "Historical chart", detail: "14 daily SOL price points from CMC", icon: ChartNoAxesCombined, access: "Full access" },
+  { id: "relative", name: "Relative return", detail: "Compare SOL with BTC and ETH over 14 days", icon: BarChart3, access: "Full access" },
+  { id: "profile", name: "Asset profile", detail: "Solana metadata, description and tags", icon: BookOpen, access: "Full access" },
+  { id: "conversion", name: "Price converter", detail: "Live BTC to USD conversion", icon: Coins, access: "Full access" },
+  { id: "exchangeDirectory", name: "Exchange directory", detail: "CMC venue reference and status", icon: Landmark, access: "Full access" },
+  { id: "fiats", name: "Fiat coverage", detail: "Supported national currencies", icon: Globe2, access: "Full access" },
+  { id: "derivativeVenues", name: "Derivatives venues", detail: "Open interest and 24h volume by exchange", icon: Table2, access: "Full access" },
+  { id: "liquidationAssets", name: "Asset liquidations", detail: "24h long and short closures by coin", icon: ShieldAlert, access: "Full access" },
+  { id: "liquidationExchanges", name: "Venue liquidations", detail: "24h liquidations by exchange", icon: Landmark, access: "Full access" },
+  { id: "dexToken", name: "DEX token lens", detail: "JUP market, liquidity and trading activity", icon: Radar, access: "Full access" },
+  { id: "dexPools", name: "DEX pools", detail: "JUP pair depth and volume", icon: Layers3, access: "Full access" },
+  { id: "dexSecurity", name: "Token security", detail: "CMC JUP contract screening checks", icon: ShieldCheck, access: "Full access" },
+  { id: "dexHolders", name: "Holder count", detail: "JUP token holder count", icon: Users, access: "Full access" },
+  { id: "dexSwaps", name: "Swap tape", detail: "Recent JUP DEX trades", icon: Activity, access: "Full access" },
+  { id: "dexLiquidity", name: "Liquidity changes", detail: "Recent JUP pool adds and removals", icon: Scale, access: "Full access" },
+  { id: "rwaGold", name: "Tokenized gold", detail: "Underlying market and token issuances", icon: WalletCards, access: "Full access" },
+  { id: "rwaIssuers", name: "RWA issuers", detail: "Issuer directory across tokenized assets", icon: BadgeCheck, access: "Full access" },
+  { id: "capabilities", name: "CMC coverage", detail: "Live and gated data families", icon: Database, access: "Full access" },
+  { id: "discovery", name: "Discovery feeds", detail: "Trending, new listings and gainers/losers", icon: LockKeyhole, access: "Locked" },
+  { id: "cmcAi", name: "CMC AI briefing", detail: "CMC generated market context", icon: Bot, access: "Locked" },
+  { id: "airdrops", name: "Airdrop feed", detail: "Campaign discovery feed", icon: LockKeyhole, access: "Locked" },
 ];
-
-const defaultWidgets: WidgetId[] = ["market", "watchlist", "regime", "performance", "movers", "categories", "fear", "benchmark", "liquidations", "rwa", "agent"];
 
 export default function Home() {
   const market = useCmcMarket();
   const [mode, setMode] = useState<Mode>("Build");
   const [selected, setSelected] = useState<WidgetId>("agent");
-  const [widgets, setWidgets] = useState<WidgetId[]>(defaultWidgets);
-  const [proposal, setProposal] = useState<"pending" | "accepted" | "rejected">("pending");
+  const [board, setBoard] = useState<BoardState>(defaultBoard);
+  const [initialized, setInitialized] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
+  const [draft, setDraft] = useState<BoardProposal | null>(null);
   const [agentPrompt, setAgentPrompt] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
-  const [shareLabel, setShareLabel] = useState("Share");
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const [shareUrl, setShareUrl] = useState("");
+  const [shareCopied, setShareCopied] = useState(false);
+  const [resetArmed, setResetArmed] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState("");
-  const [inspectorOpen, setInspectorOpen] = useState(true);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const widgets = board.widgets;
+  const proposal = board.monitor.status;
 
   const sol = market.data?.assets.find((asset) => asset.symbol === "SOL") ?? null;
   const selectedDefinition = widgetCatalog.find((widget) => widget.id === selected) ?? widgetCatalog[0];
@@ -66,20 +97,44 @@ export default function Home() {
   }, [libraryQuery]);
 
   useEffect(() => {
+    const shared = new URLSearchParams(window.location.search).get("share");
+    let nextBoard = defaultBoard;
+    let sharedView = false;
+    let loadError: string | null = null;
+    if (shared) {
+      const parsed = decodeBoard(shared);
+      if (parsed) { nextBoard = parsed; sharedView = true; }
+      else loadError = "This share link is invalid. Open the original board and create a new one.";
+    } else {
+      try {
+        const saved = window.localStorage.getItem(BOARD_STORAGE_KEY);
+        if (saved) nextBoard = parseBoard(JSON.parse(saved)) ?? defaultBoard;
+      } catch { loadError = "Saved board could not be loaded. The demo board is available."; }
+    }
+    queueMicrotask(() => { setBoard(nextBoard); setReadOnly(sharedView); setMode(sharedView ? "Live" : "Build"); setAgentError(loadError); setInitialized(true); });
+  }, []);
+
+  useEffect(() => {
+    if (!initialized || readOnly) return;
+    try { window.localStorage.setItem(BOARD_STORAGE_KEY, JSON.stringify(board)); }
+    catch { queueMicrotask(() => setAgentError("This browser cannot save the board. You can still use it in this tab.")); }
+  }, [board, initialized, readOnly]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLibraryOpen(false);
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+      if (event.key === "Escape") { setLibraryOpen(false); setShareUrl(""); }
+      if (!readOnly && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         document.querySelector<HTMLInputElement>("#agent-prompt")?.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [readOnly]);
 
   useEffect(() => {
     const context = document.modelContext;
-    if (!context?.registerTool) return;
+    if (!context?.registerTool || readOnly) return;
     const lifecycle = new AbortController();
     const register = (tool: Parameters<NonNullable<typeof context.registerTool>>[0]) => {
       void Promise.resolve(context.registerTool?.(tool, { signal: lifecycle.signal })).catch(() => undefined);
@@ -90,7 +145,7 @@ export default function Home() {
       description: "Read the current Plan3 board, its widgets, and live SOL market context without changing anything.",
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: true, untrustedContentHint: false },
-      execute: () => ({ board: "SOL momentum thesis", mode, widgets, sol, monitorStatus: proposal }),
+      execute: () => ({ board: board.name, mode, widgets, sol, monitorStatus: proposal, thesis: board.thesis }),
     });
     register({
       name: "add_market_widget",
@@ -101,7 +156,7 @@ export default function Home() {
       execute: (input) => {
         const id = (input as { widget?: WidgetId }).widget;
         if (!id || !widgetCatalog.some((item) => item.id === id)) throw new Error("Unsupported widget");
-        setWidgets((current) => current.includes(id) ? current : [...current, id]);
+        setBoard((current) => ({ ...current, widgets: current.widgets.includes(id) ? current.widgets : [...current.widgets, id] }));
         setSelected(id);
         return { widget: id, status: "added", requiresHumanApproval: id === "agent" };
       },
@@ -113,49 +168,86 @@ export default function Home() {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
-        setWidgets((current) => current.includes("agent") ? current : [...current, "agent"]);
-        setProposal("pending");
+        setBoard((current) => ({ ...current, widgets: current.widgets.includes("agent") ? current.widgets : [...current.widgets, "agent"], monitor: { ...current.monitor, status: "pending" } }));
         setSelected("agent");
         return { status: "proposed", requiresHumanApproval: true };
       },
     });
     return () => lifecycle.abort();
-  }, [mode, proposal, sol, widgets]);
+  }, [board, mode, proposal, readOnly, sol, widgets]);
+
+  const addActivity = (current: BoardState, label: string): BoardState => ({ ...current, activity: [...current.activity, { at: new Date().toISOString(), label }].slice(-30) });
+
+  const setProposal = (status: "pending" | "accepted" | "rejected") => {
+    setBoard((current) => addActivity({ ...current, monitor: { ...current.monitor, status } }, `Monitor ${status}`));
+  };
 
   const addWidget = (id: WidgetId) => {
-    setWidgets((current) => current.includes(id) ? current : [...current, id]);
+    if (readOnly) return;
+    setBoard((current) => current.widgets.includes(id) ? current : addActivity({ ...current, widgets: [...current.widgets, id] }, `Added ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`));
     setSelected(id);
     setInspectorOpen(true);
     setLibraryOpen(false);
   };
 
-  const removeSelected = () => {
-    setWidgets((current) => current.filter((id) => id !== selected));
-    setSelected(widgets.find((id) => id !== selected) ?? "market");
+  const removeWidget = (id: WidgetId) => {
+    setBoard((current) => addActivity({ ...current, widgets: current.widgets.filter((item) => item !== id) }, `Removed ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`));
+    if (selected === id) setSelected(widgets.find((item) => item !== id) ?? "market");
   };
 
-  const submitAgent = (event: FormEvent<HTMLFormElement>) => {
+  const moveWidget = (id: WidgetId, direction: -1 | 1) => {
+    setBoard((current) => {
+      const index = current.widgets.indexOf(id);
+      const next = index + direction;
+      if (index < 0 || next < 0 || next >= current.widgets.length) return current;
+      const widgets = [...current.widgets];
+      [widgets[index], widgets[next]] = [widgets[next], widgets[index]];
+      return addActivity({ ...current, widgets }, `Moved ${id} ${direction < 0 ? "up" : "down"}`);
+    });
+  };
+
+  const toggleSize = (id: WidgetId) => setBoard((current) => {
+    const size = current.sizes[id] === "wide" ? "standard" : "wide";
+    return addActivity({ ...current, sizes: { ...current.sizes, [id]: size } }, `Set ${id} to ${size}`);
+  });
+
+  const submitAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!agentPrompt.trim()) return;
+    if (!agentPrompt.trim() || agentBusy || readOnly) return;
     setAgentBusy(true);
-    window.setTimeout(() => {
-      setWidgets((current) => current.includes("agent") ? current : [...current, "agent"]);
-      setProposal("pending");
-      setSelected("agent");
-      setInspectorOpen(true);
+    setAgentError(null);
+    try {
+      const response = await fetch("/api/agent", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt: agentPrompt.trim() }) });
+      const payload = await response.json() as { proposal?: BoardProposal; error?: string };
+      if (!response.ok || !payload.proposal) throw new Error(payload.error ?? "The analyst could not prepare a proposal.");
+      const next = payload.proposal;
+      if (!Array.isArray(next.widgets) || !next.widgets.every(isWidgetId) || !next.thesis || !next.monitor) throw new Error("The analyst returned an invalid proposal.");
+      setDraft(next);
       setAgentPrompt("");
-      setAgentBusy(false);
-    }, 700);
+      setMode("Build");
+    } catch (error) { setAgentError(error instanceof Error ? error.message : "The analyst could not prepare a proposal."); }
+    finally { setAgentBusy(false); }
   };
 
-  const shareBoard = async () => {
-    try {
-      await navigator.clipboard.writeText(window.location.href);
-      setShareLabel("Copied");
-    } catch {
-      setShareLabel("Ready");
-    }
-    window.setTimeout(() => setShareLabel("Share"), 1600);
+  const acceptDraft = () => {
+    if (!draft) return;
+    setBoard((current) => addActivity({ ...current, widgets: [...new Set([...current.widgets, ...draft.widgets])], thesis: draft.thesis, monitor: { ...draft.monitor, status: "accepted" } }, `Accepted analyst proposal: ${draft.prompt}`));
+    setSelected("thesis");
+    setInspectorOpen(true);
+    setDraft(null);
+  };
+
+  const rejectDraft = () => {
+    if (!draft) return;
+    setBoard((current) => addActivity(current, `Rejected analyst proposal: ${draft.prompt}`));
+    setDraft(null);
+  };
+
+  const shareBoard = () => {
+    const url = new URL(window.location.href);
+    url.searchParams.set("share", encodeBoard({ ...board, activity: [] }));
+    setShareUrl(url.toString());
+    setShareCopied(false);
   };
 
   return (
@@ -165,30 +257,28 @@ export default function Home() {
           <span className="brand-symbol"><img src="/plan3-symbol.svg" alt="" width="28" height="28" /></span>
           <span className="brand-word">PLAN<sup>3</sup></span>
         </div>
-        <button className="board-switcher focus-ring" type="button">
-          <span className="board-title">SOL momentum thesis</span>
-          <span className="saved-state"><Check aria-hidden="true" /> Saved</span>
-          <ChevronDown aria-hidden="true" />
-        </button>
+        <div className="board-switcher">
+          {readOnly ? <span className="board-title">{board.name}</span> : <><label className="sr-only" htmlFor="board-name">Board name</label><input id="board-name" className="board-name-input" value={board.name} maxLength={80} onChange={(event) => setBoard((current) => ({ ...current, name: event.target.value }))} /></>}
+          <span className="saved-state"><Check aria-hidden="true" /> {readOnly ? "Read only" : initialized ? "Saved here" : "Loading"}</span>
+        </div>
         <div className="mode-switcher" aria-label="Workspace mode">
           {(["Build", "Live", "Focus"] as Mode[]).map((item) => (
-            <button className={`mode-button focus-ring ${mode === item ? "is-active" : ""}`} key={item} onClick={() => setMode(item)} type="button" aria-pressed={mode === item}>{item}</button>
+            <button className={`mode-button focus-ring ${mode === item ? "is-active" : ""}`} key={item} onClick={() => setMode(item)} type="button" aria-pressed={mode === item} disabled={readOnly && item === "Build"}>{item}</button>
           ))}
         </div>
         <div className="top-actions">
-          <Button variant="ghost" size="icon" aria-label="Open search"><Search aria-hidden="true" /></Button>
-          <Button variant="ghost" size="icon" aria-label="View notifications"><Bell aria-hidden="true" /></Button>
-          <Button className="share-button" onClick={shareBoard}><Share2 aria-hidden="true" />{shareLabel}</Button>
+          {!readOnly && <Button variant="ghost" size="icon" aria-label="Search widgets" onClick={() => setLibraryOpen(true)}><Search aria-hidden="true" /></Button>}
+          {!readOnly && <Button className="reset-button" variant="ghost" aria-label={resetArmed ? "Confirm reset demo board" : "Reset demo board"} onClick={() => { if (resetArmed) { setBoard(defaultBoard); setSelected("agent"); setDraft(null); setResetArmed(false); } else setResetArmed(true); }} title={resetArmed ? "Click again to reset" : "Reset demo board"}><RotateCcw aria-hidden="true" />{resetArmed && <span>Confirm reset</span>}</Button>}
+          <Button className="share-button" onClick={shareBoard}><Share2 aria-hidden="true" />Share</Button>
         </div>
       </header>
 
       <aside className="tool-rail" aria-label="Board tools">
         <nav>
           <button className="rail-button is-active focus-ring" type="button" aria-label="Select tool"><MousePointer2 aria-hidden="true" /></button>
-          <button className="rail-button focus-ring" type="button" aria-label="Add widget" onClick={() => setLibraryOpen((value) => !value)} aria-expanded={libraryOpen}><Plus aria-hidden="true" /></button>
-          <button className="rail-button focus-ring" type="button" aria-label="Connect widgets"><Link2 aria-hidden="true" /></button>
-          <button className="rail-button focus-ring" type="button" aria-label="Open agents"><Bot aria-hidden="true" /></button>
-          <button className="rail-button focus-ring" type="button" aria-label="Board history"><History aria-hidden="true" /></button>
+          {!readOnly && <button className="rail-button focus-ring" type="button" aria-label="Add widget" onClick={() => setLibraryOpen((value) => !value)} aria-expanded={libraryOpen}><Plus aria-hidden="true" /></button>}
+          {!readOnly && <button className="rail-button focus-ring" type="button" aria-label="Ask analyst" onClick={() => document.querySelector<HTMLInputElement>("#agent-prompt")?.focus()}><Bot aria-hidden="true" /></button>}
+          <button className="rail-button focus-ring" type="button" aria-label="View board activity" onClick={() => setInspectorOpen(true)}><History aria-hidden="true" /></button>
         </nav>
         <nav className="rail-bottom">
           <button className="rail-button focus-ring" type="button" aria-label="Toggle grid"><Grid2X2 aria-hidden="true" /></button>
@@ -196,7 +286,7 @@ export default function Home() {
         </nav>
       </aside>
 
-      {libraryOpen && (
+      {libraryOpen && !readOnly && (
         <section className="widget-library" aria-label="Widget library">
           <div className="library-heading">
             <div><span className="eyebrow">{widgetCatalog.length} WIDGETS</span><h2>Add to this board</h2></div>
@@ -214,7 +304,7 @@ export default function Home() {
                 <button className="library-item focus-ring" type="button" key={id} onClick={() => addWidget(id)} disabled={added}>
                   <span className="library-icon"><Icon aria-hidden="true" /></span>
                   <span><strong>{name}</strong><small>{detail}</small></span>
-                  <span className={access === "Full access" ? "access-full" : "access-live"}>{added ? "Added" : access}</span>
+                  <span className={access === "Full access" || access === "Locked" ? "access-full" : "access-live"}>{added ? "Added" : access}</span>
                 </button>
               );
             })}
@@ -237,48 +327,62 @@ export default function Home() {
           </div>
         )}
 
+        {agentError && <div className="data-error" role="alert"><CircleAlert aria-hidden="true" /><span>{agentError}</span><button type="button" onClick={() => setAgentError(null)}>Dismiss</button></div>}
+
+        {draft && !readOnly && <section className="draft-panel" aria-label="Analyst proposal">
+          <div className="draft-head"><span><Bot aria-hidden="true" /> ANALYST PROPOSAL · REVIEW REQUIRED</span><strong>{draft.widgets.length} suggested widgets</strong></div>
+          <h2>{draft.thesis.summary}</h2>
+          <p>{draft.rationale}</p>
+          <div className="draft-facts"><div><h3>Evidence from CMC</h3>{draft.thesis.evidence.map((fact) => <p key={fact}>{fact}</p>)}</div><div><h3>Open risks</h3>{draft.thesis.risks.length ? draft.thesis.risks.map((risk) => <p key={risk}>{risk}</p>) : <p>No explicit risk flag in the current response.</p>}</div></div>
+          <div className="draft-widgets">{draft.widgets.map((id) => <span key={id}>{widgetCatalog.find((item) => item.id === id)?.name ?? id}{widgets.includes(id) ? " · on board" : " · proposed"}</span>)}</div>
+          <div className="draft-edit"><label htmlFor="draft-thesis">Edit thesis</label><textarea id="draft-thesis" value={draft.thesis.summary} onChange={(event) => setDraft((current) => current ? { ...current, thesis: { ...current.thesis, summary: event.target.value.slice(0, 600) } } : current)} rows={2} /><label htmlFor="draft-volume">Monitor if volume change falls below (%)</label><input id="draft-volume" type="number" min="-100" max="100" step="0.1" value={draft.monitor.volumeChangeBelow} onChange={(event) => setDraft((current) => current ? { ...current, monitor: { ...current.monitor, volumeChangeBelow: Number(event.target.value) } } : current)} /></div>
+          <div className="draft-actions"><Button onClick={acceptDraft}><Check aria-hidden="true" /> Accept proposal</Button><Button variant="secondary" onClick={rejectDraft}><X aria-hidden="true" /> Reject</Button><small>CMC data retrieved {timeAgo(draft.sourceRetrievedAt)} · no trades are placed</small></div>
+        </section>}
+
         <div className="board-grid">
           {widgets.length === 0 ? (
             <div className="board-empty">
               <Grid2X2 aria-hidden="true" />
               <h2>Build your decision board</h2>
               <p>Add live CMC data, a thesis, or an agent-maintained rule.</p>
-              <Button onClick={() => setLibraryOpen(true)}><Plus aria-hidden="true" /> Add widget</Button>
+              {!readOnly && <Button onClick={() => setLibraryOpen(true)}><Plus aria-hidden="true" /> Add widget</Button>}
             </div>
           ) : widgets.map((id) => (
-            <WidgetShell key={id} id={id} selected={selected === id} onSelect={() => { setSelected(id); setInspectorOpen(true); }}>
-              {renderWidget(id, market, sol, proposal, setProposal)}
+            <WidgetShell key={id} id={id} size={board.sizes[id] ?? "standard"} selected={selected === id} readOnly={readOnly} mode={mode} onSelect={() => { setSelected(id); setInspectorOpen(true); }} onMove={(direction) => moveWidget(id, direction)} onSize={() => toggleSize(id)} onRemove={() => removeWidget(id)} canMoveEarlier={widgets.indexOf(id) > 0} canMoveLater={widgets.indexOf(id) < widgets.length - 1}>
+              {renderWidget(id, market, sol, board, setProposal, readOnly)}
             </WidgetShell>
           ))}
+          {draft && !readOnly && draft.widgets.filter((id) => !widgets.includes(id)).map((id) => <article key={`draft-${id}`} className="widget widget-proposed" data-size={board.sizes[id] ?? "standard"}><span className="proposed-ribbon">AGENT PROPOSED · NOT ON BOARD</span>{renderWidget(id, market, sol, { ...board, thesis: draft.thesis, monitor: draft.monitor }, setProposal, true)}</article>)}
         </div>
 
-        <div className="zoom-controls" aria-label="Canvas zoom"><button className="focus-ring" type="button">−</button><span>92%</span><button className="focus-ring" type="button">+</button><button className="focus-ring" type="button" aria-label="Fit board"><Maximize2 aria-hidden="true" /></button></div>
-        <form className="agent-command" onSubmit={submitAgent}>
+        {!readOnly && <form className="agent-command" onSubmit={submitAgent}>
           <Bot aria-hidden="true" />
           <label className="sr-only" htmlFor="agent-prompt">Ask an agent to work on this board</label>
           <input id="agent-prompt" value={agentPrompt} onChange={(event) => setAgentPrompt(event.target.value)} placeholder="Ask an agent to add evidence, compare, or monitor…" autoComplete="off" />
           <span className="command-hint"><Command aria-hidden="true" /> K</span>
-          <Button size="sm" type="submit" disabled={agentBusy || !agentPrompt.trim()}>{agentBusy ? "Working…" : "Run"}</Button>
-        </form>
+          <Button size="sm" type="submit" disabled={agentBusy || agentPrompt.trim().length < 8} aria-busy={agentBusy}>{agentBusy ? "Analyzing…" : "Propose"}</Button>
+        </form>}
       </section>
 
       {inspectorOpen && (
         <aside className="inspector" aria-label="Widget inspector">
           <div className="inspector-head"><div><span className="eyebrow">INSPECTOR</span><h2>{selectedDefinition.name}</h2></div><Button variant="ghost" size="icon" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}><X aria-hidden="true" /></Button></div>
-          <div className="inspector-status"><span className={selected === "agent" && proposal === "pending" ? "status-proposed" : "status-live"}><i />{selected === "agent" && proposal === "pending" ? "Awaiting approval" : "Live"}</span><button className="focus-ring" type="button">Activity <ExternalLink aria-hidden="true" /></button></div>
-          <InspectorContent id={selected} data={market.data} sol={sol} proposal={proposal} />
-          <div className="inspector-actions"><Button variant="secondary" onClick={() => setMode("Focus")}><Focus aria-hidden="true" /> Focus</Button><Button variant="ghost" onClick={removeSelected}><X aria-hidden="true" /> Remove</Button></div>
+          <div className="inspector-status"><span className={selected === "agent" && proposal === "pending" ? "status-proposed" : "status-live"}><i />{readOnly ? "Shared snapshot" : selected === "agent" && proposal === "pending" ? "Awaiting approval" : "Live"}</span></div>
+          <InspectorContent id={selected} data={market.data} sol={sol} proposal={proposal} board={board} />
+          {!readOnly && <>{selected === "thesis" && <InspectorSection title="Edit conclusion"><label className="sr-only" htmlFor="thesis-summary">Thesis summary</label><textarea id="thesis-summary" className="inspector-textarea" value={board.thesis.summary} onChange={(event) => setBoard((current) => ({ ...current, thesis: { ...current.thesis, summary: event.target.value.slice(0, 600) } }))} rows={4} /></InspectorSection>}{selected === "agent" && <InspectorSection title="Edit monitor"><label className="inspector-label" htmlFor="monitor-volume">Volume change below (%)</label><input id="monitor-volume" className="inspector-number" type="number" min="-100" max="100" step="0.1" value={board.monitor.volumeChangeBelow} onChange={(event) => setBoard((current) => ({ ...current, monitor: { ...current.monitor, volumeChangeBelow: Number(event.target.value) } }))} /></InspectorSection>}<InspectorSection title="Arrange widget"><div className="arrange-actions"><Button variant="secondary" onClick={() => moveWidget(selected, -1)} disabled={widgets.indexOf(selected) <= 0} aria-label="Move widget earlier"><ArrowUp aria-hidden="true" /> Earlier</Button><Button variant="secondary" onClick={() => moveWidget(selected, 1)} disabled={widgets.indexOf(selected) >= widgets.length - 1} aria-label="Move widget later"><ArrowDown aria-hidden="true" /> Later</Button></div><Button variant="secondary" className="size-button" onClick={() => toggleSize(selected)}>{board.sizes[selected] === "wide" ? "Use standard width" : "Use wide width"}</Button></InspectorSection><div className="inspector-actions"><Button variant="secondary" onClick={() => setMode("Focus")}><Focus aria-hidden="true" /> Focus</Button><Button variant="ghost" onClick={() => removeWidget(selected)}><X aria-hidden="true" /> Remove</Button></div></>}
         </aside>
       )}
+      <Dialog open={Boolean(shareUrl)} onOpenChange={(open) => { if (!open) setShareUrl(""); }}><DialogContent><DialogHeader><DialogTitle>Share this board</DialogTitle><DialogDescription>Anyone with this link can view a read-only snapshot of the layout, thesis and monitor. Market widgets load current CMC data when opened.</DialogDescription></DialogHeader><label className="sr-only" htmlFor="share-link">Read-only board link</label><input id="share-link" className="share-link-input" value={shareUrl} readOnly onFocus={(event) => event.target.select()} /><DialogFooter><Button onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); setShareCopied(true); } catch { document.querySelector<HTMLInputElement>("#share-link")?.select(); } }}><Copy aria-hidden="true" /> {shareCopied ? "Copied" : "Copy link"}</Button></DialogFooter></DialogContent></Dialog>
     </main>
   );
 }
 
-function WidgetShell({ id, selected, onSelect, children }: { id: WidgetId; selected: boolean; onSelect: () => void; children: React.ReactNode }) {
-  return <article className={`widget widget-${id}`} data-selected={selected} onFocusCapture={onSelect}>{children}</article>;
+function WidgetShell({ id, size, selected, readOnly, mode, onSelect, onMove, onSize, onRemove, canMoveEarlier, canMoveLater, children }: { id: WidgetId; size: "standard" | "wide"; selected: boolean; readOnly: boolean; mode: Mode; onSelect: () => void; onMove: (direction: -1 | 1) => void; onSize: () => void; onRemove: () => void; canMoveEarlier: boolean; canMoveLater: boolean; children: React.ReactNode }) {
+  return <article className={`widget widget-${id}`} data-size={size} data-selected={selected} onFocusCapture={onSelect}>{children}{!readOnly && mode === "Build" ? <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="widget-manage focus-ring" aria-label={`Manage ${id}`}><Menu aria-hidden="true" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={onSelect}><Eye aria-hidden="true" /> Inspect</DropdownMenuItem><DropdownMenuItem onSelect={() => onMove(-1)} disabled={!canMoveEarlier}><ArrowUp aria-hidden="true" /> Move earlier</DropdownMenuItem><DropdownMenuItem onSelect={() => onMove(1)} disabled={!canMoveLater}><ArrowDown aria-hidden="true" /> Move later</DropdownMenuItem><DropdownMenuItem onSelect={onSize}><Maximize2 aria-hidden="true" /> {size === "wide" ? "Standard width" : "Wide width"}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={onRemove}><X aria-hidden="true" /> Remove widget</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : <button type="button" className="widget-manage focus-ring" aria-label={`Inspect ${id}`} onClick={onSelect}><Eye aria-hidden="true" /></button>}</article>;
 }
 
-function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol: CmcAssetQuote | null, proposal: "pending" | "accepted" | "rejected", setProposal: (value: "pending" | "accepted" | "rejected") => void) {
+function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol: CmcAssetQuote | null, board: BoardState, setProposal: (value: "pending" | "accepted" | "rejected") => void, readOnly: boolean) {
+  if (isExtendedWidget(id)) return <ExtendedWidget id={id} data={market.data} loading={market.loading} />;
   if (id === "market") return <MarketWidget asset={sol} loading={market.loading} refreshing={market.refreshing} refresh={market.retry} />;
   if (id === "watchlist") return <WatchlistWidget assets={market.data?.assets ?? []} loading={market.loading} />;
   if (id === "leaderboard") return <LeaderboardWidget assets={market.data?.listings ?? []} loading={market.loading} />;
@@ -299,12 +403,12 @@ function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol
   if (id === "funding") return <FundingWidget data={market.data} />;
   if (id === "rwa") return <RwaWidget data={market.data} loading={market.loading} />;
   if (id === "apihealth") return <ApiHealthWidget data={market.data} loading={market.loading} />;
-  if (id === "thesis") return <ThesisWidget sol={sol} />;
-  return <AgentWidget data={market.data} proposal={proposal} setProposal={setProposal} />;
+  if (id === "thesis") return <ThesisWidget thesis={board.thesis} />;
+  return <AgentWidget data={market.data} monitor={board.monitor} setProposal={setProposal} readOnly={readOnly} />;
 }
 
 function Header({ icon: Icon, kicker, title }: { icon: typeof Activity; kicker: string; title: string }) {
-  return <header className="widget-header"><div className="widget-heading"><span className="widget-kicker"><Icon aria-hidden="true" />{kicker}</span><h2>{title}</h2></div><button className="widget-menu focus-ring" type="button" aria-label={`Inspect ${title}`}><Menu aria-hidden="true" /></button></header>;
+  return <header className="widget-header"><div className="widget-heading"><span className="widget-kicker"><Icon aria-hidden="true" />{kicker}</span><h2>{title}</h2></div><span className="widget-menu" aria-hidden="true"><Menu /></span></header>;
 }
 
 function MarketWidget({ asset, loading, refreshing, refresh }: { asset: CmcAssetQuote | null; loading: boolean; refreshing: boolean; refresh: () => void }) {
@@ -427,17 +531,18 @@ function UsageRow({ label, used, left, percent }: { label: string; used: number 
   return <div className="usage-row"><div><span>{label}</span><strong>{used?.toLocaleString() ?? "—"} used</strong></div><i><b style={{ width: `${Math.min(100, percent)}%` }} /></i><small>{left?.toLocaleString() ?? "—"} remaining</small></div>;
 }
 
-function ThesisWidget({ sol }: { sol: CmcAssetQuote | null }) {
-  const positive = (sol?.change24h ?? 0) >= 0;
-  return <><Header icon={Sparkles} kicker="WORKING THESIS" title={positive ? "Momentum is constructive" : "Momentum needs confirmation"} /><p className="thesis-copy">SOL’s price move is visible. The thesis remains conditional on volume confirmation and neutral leverage.</p><div className="confidence"><span>Confidence</span><div><i /></div><strong>68%</strong></div><div className="evidence-count"><span>3 supporting</span><span>2 unresolved</span></div></>;
+function ThesisWidget({ thesis }: { thesis: BoardState["thesis"] }) {
+  return <><Header icon={Sparkles} kicker="WORKING THESIS" title="Human-owned conclusion" /><p className="thesis-copy">{thesis.summary}</p><div className="confidence"><span>Evidence score</span><div><i style={{ width: `${thesis.confidence}%` }} /></div><strong>{thesis.confidence}%</strong></div><div className="evidence-count"><span>{thesis.evidence.length} source facts</span><span>{thesis.risks.length} open risks</span>{thesis.sourceRetrievedAt && <span>Checked {timeAgo(thesis.sourceRetrievedAt)}</span>}</div></>;
 }
 
-function AgentWidget({ data, proposal, setProposal }: { data: CmcOverview | null; proposal: "pending" | "accepted" | "rejected"; setProposal: (value: "pending" | "accepted" | "rejected") => void }) {
-  const live = data?.derivatives.available && data?.liquidations.available;
-  return <><div className="proposal-flag"><Bot aria-hidden="true" /> {proposal === "accepted" ? "MONITOR ACTIVE" : proposal === "rejected" ? "PROPOSAL REJECTED" : "RISK AGENT PROPOSED"}</div><Header icon={BrainCircuit} kicker="AGENT MONITOR" title="Momentum crowding" /><p className="agent-copy">Warn when SOL rises while volume weakens, funding turns positive, and liquidations accelerate.</p><div className="rule-stack"><span>PRICE ↑</span><b>+</b><span>VOLUME ↓</span><b>+</b><span>FUNDING ↑</span></div><div className="monitor-meta"><span><Clock3 aria-hidden="true" /> Every 5 min</span><span>{live ? "4 live inputs" : "2 public inputs"}</span></div>{proposal === "pending" ? <div className="proposal-actions"><Button className="accept-button" onClick={() => setProposal("accepted")}><Check aria-hidden="true" /> Accept</Button><Button variant="ghost" onClick={() => setProposal("rejected")}><X aria-hidden="true" /> Reject</Button></div> : proposal === "accepted" ? <div className="active-monitor"><i /> Watching live conditions</div> : <div className="rejected-monitor"><button type="button" onClick={() => setProposal("pending")}>Restore proposal</button></div>}</>;
+function AgentWidget({ data, monitor, setProposal, readOnly }: { data: CmcOverview | null; monitor: BoardState["monitor"]; setProposal: (value: "pending" | "accepted" | "rejected") => void; readOnly: boolean }) {
+  const sol = data?.assets.find((asset) => asset.symbol === "SOL");
+  const hasInputs = sol?.change24h != null && sol.volumeChange24h != null && data?.derivatives.fundingRate != null;
+  const triggered = hasInputs && (sol?.change24h ?? 0) > 0 && (sol?.volumeChange24h ?? 0) < monitor.volumeChangeBelow && (data?.derivatives.fundingRate ?? 0) > monitor.fundingAbove;
+  return <><div className="proposal-flag"><Bot aria-hidden="true" /> {monitor.status === "accepted" ? "MONITOR APPROVED" : monitor.status === "rejected" ? "MONITOR REJECTED" : "MONITOR PROPOSED"}</div><Header icon={BrainCircuit} kicker="AGENT MONITOR" title="Momentum crowding" /><p className="agent-copy">{monitor.description}</p><div className="rule-stack"><span>PRICE ↑</span><b>+</b><span>VOLUME &lt; {monitor.volumeChangeBelow}%</span><b>+</b><span>FUNDING &gt; {(monitor.fundingAbove * 100).toFixed(2)}%</span></div><div className="monitor-meta"><span><Clock3 aria-hidden="true" /> Checks on 60s data refresh</span><span>{hasInputs ? "3 live inputs" : "Waiting for inputs"}</span></div>{monitor.status === "pending" && !readOnly ? <div className="proposal-actions"><Button className="accept-button" onClick={() => setProposal("accepted")}><Check aria-hidden="true" /> Accept</Button><Button variant="ghost" onClick={() => setProposal("rejected")}><X aria-hidden="true" /> Reject</Button></div> : monitor.status === "accepted" ? <div className="active-monitor"><i /> {hasInputs ? triggered ? "Condition met on latest CMC refresh" : "No divergence on latest CMC refresh" : "Waiting for complete CMC inputs"}</div> : monitor.status === "rejected" && !readOnly ? <div className="rejected-monitor"><button type="button" onClick={() => setProposal("pending")}>Restore proposal</button></div> : null}</>;
 }
 
-function InspectorContent({ id, data, sol, proposal }: { id: WidgetId; data: CmcOverview | null; sol: CmcAssetQuote | null; proposal: "pending" | "accepted" | "rejected" }) {
+function InspectorContent({ id, data, sol, proposal, board }: { id: WidgetId; data: CmcOverview | null; sol: CmcAssetQuote | null; proposal: "pending" | "accepted" | "rejected"; board: BoardState }) {
   const definition = widgetCatalog.find((item) => item.id === id)!;
   const inputs = useMemo(() => {
     if (["leaderboard", "performance", "movers", "breadth", "dominance", "volume", "valuation", "venues", "stablecoins"].includes(id)) return ["Top-30 market listings", "USD quotes", "60-second refresh"];
@@ -450,7 +555,7 @@ function InspectorContent({ id, data, sol, proposal }: { id: WidgetId; data: Cmc
     if (id === "liquidations") return ["1h liquidations", "4h liquidations", "24h long/short split"];
     return [definition.name, "Last updated timestamp"];
   }, [definition.name, id]);
-  return <><InspectorSection title="Purpose"><p>{definition.detail}.</p></InspectorSection><InspectorSection title="Inputs">{inputs.map((input) => <DataRow key={input} label={input} value="CMC" />)}</InspectorSection>{id === "agent" && <InspectorSection title="Logic"><code>price_24h &gt; 0 AND volume_change_24h &lt; 0 AND funding_rate &gt; threshold</code><p className="logic-note">This rule cannot alert or change the thesis until you accept it.</p></InspectorSection>}<InspectorSection title="Provenance"><DataRow label="Provider" value="CoinMarketCap" /><DataRow label="Access" value={data?.mode === "full" ? "Full API" : "Public API"} /><DataRow label="Retrieved" value={data ? timeAgo(data.retrievedAt) : "Waiting"} />{sol?.lastUpdated && <DataRow label="SOL source" value={timeAgo(sol.lastUpdated)} />}</InspectorSection>{id === "agent" && <InspectorSection title="Human control"><div className="permission"><Check aria-hidden="true" /><span><strong>Read CMC data</strong><small>Allowed</small></span></div><div className="permission"><Check aria-hidden="true" /><span><strong>Change board</strong><small>{proposal === "accepted" ? "Monitor accepted" : "Approval required"}</small></span></div></InspectorSection>}</>;
+  return <><InspectorSection title="Purpose"><p>{definition.detail}.</p></InspectorSection><InspectorSection title="Inputs">{inputs.map((input) => <DataRow key={input} label={input} value="CMC" />)}</InspectorSection>{id === "agent" && <InspectorSection title="Logic"><code>price_24h &gt; 0 AND volume_change_24h &lt; {board.monitor.volumeChangeBelow} AND funding_rate &gt; {board.monitor.fundingAbove}</code><p className="logic-note">Checks on each data refresh. The rule does not trade or send notifications.</p></InspectorSection>}{id === "thesis" && <InspectorSection title="Evidence">{board.thesis.evidence.map((item) => <p className="inspector-fact" key={item}>{item}</p>)}{board.thesis.risks.map((item) => <p className="inspector-risk" key={item}>{item}</p>)}</InspectorSection>}<InspectorSection title="Provenance"><DataRow label="Provider" value="CoinMarketCap" /><DataRow label="Access" value={data?.mode === "full" ? "Full API" : "Public API"} /><DataRow label="Retrieved" value={data ? timeAgo(data.retrievedAt) : "Waiting"} />{sol?.lastUpdated && <DataRow label="SOL source" value={timeAgo(sol.lastUpdated)} />}</InspectorSection>{id === "agent" && <InspectorSection title="Human control"><div className="permission"><Check aria-hidden="true" /><span><strong>Read CMC data</strong><small>Allowed</small></span></div><div className="permission"><Check aria-hidden="true" /><span><strong>Change board</strong><small>{proposal === "accepted" ? "Monitor accepted" : "Approval required"}</small></span></div></InspectorSection>}<InspectorSection title="Activity">{board.activity.length ? board.activity.slice(-6).reverse().map((entry) => <DataRow key={`${entry.at}-${entry.label}`} label={entry.label} value={timeAgo(entry.at)} />) : <p>No changes recorded yet.</p>}</InspectorSection></>;
 }
 
 function InspectorSection({ title, children }: { title: string; children: React.ReactNode }) { return <section className="inspector-section"><h3>{title}</h3>{children}</section>; }
