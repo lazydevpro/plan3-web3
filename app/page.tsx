@@ -357,14 +357,23 @@ export default function Home() {
             <input id="widget-search" type="search" value={libraryQuery} onChange={(event) => setLibraryQuery(event.target.value)} placeholder="Search market, RWA, risk…" autoComplete="off" />
           </div>
           <div className="library-list">
-            {filteredCatalog.map(({ id, icon: Icon, name, detail, access }) => {
+            {filteredCatalog.map(({ id, name, access }) => {
               const added = widgets.includes(id);
               return (
-                <button className="library-item focus-ring" type="button" key={id} onClick={() => addWidget(id)} disabled={added}>
-                  <span className="library-icon"><Icon aria-hidden="true" /></span>
-                  <span><strong>{name}</strong><small>{detail}</small></span>
-                  <span className={access === "Full access" || access === "Locked" ? "access-full" : "access-live"}>{added ? "Added" : access}</span>
-                </button>
+                <article className="library-card" key={id}>
+                  <div className="library-card-heading">
+                    <strong>{name}</strong>
+                    <span className={access === "Full access" || access === "Locked" ? "access-full" : "access-live"}>{access}</span>
+                    <button className="library-add focus-ring" type="button" onClick={() => addWidget(id)} disabled={added} aria-label={`${added ? "Already added" : "Add"} ${name}`}>
+                      {added ? <><Check aria-hidden="true" /> Added</> : <><Plus aria-hidden="true" /> Add</>}
+                    </button>
+                  </div>
+                  <div className="library-preview" inert aria-hidden="true">
+                    <div className="library-preview-content">
+                      {renderWidget(id, market, sol, board, setProposal, true)}
+                    </div>
+                  </div>
+                </article>
               );
             })}
             {filteredCatalog.length === 0 && <div className="library-empty"><Search aria-hidden="true" /><span>No matching widgets</span></div>}
