@@ -103,7 +103,7 @@ button, input { font: inherit; } button { color: inherit; }
 .live-source i, .active-monitor i, .status-live i { width: 6px; height: 6px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 0 4px rgba(66,181,154,.09); }
 .source-error { color: var(--brick); }
 .source-error i { width: 6px; height: 6px; border-radius: 50%; background: var(--brick); }
-.board-stage { position: relative; z-index: 2; margin: 8px max(12px, calc((100% - 1120px) / 2)) 0; }
+.board-stage { position: relative; z-index: 2; min-width: calc(100% - 24px); margin: 8px 12px 0; }
 .board-stage > .widget { position: absolute; min-height: 0; border: 1px solid var(--border); border-radius: 10px; background: rgba(29,27,24,.97); overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,.15); transition: border-color 150ms ease, box-shadow 150ms ease, opacity 150ms ease; }
 .board-stage > .widget[data-selected="true"] { z-index: 5; border-color: var(--copper); box-shadow: 0 0 0 1px var(--copper-soft), 0 12px 34px rgba(0,0,0,.24); }
 .board-stage > .widget[data-active="true"] { z-index: 12; box-shadow: 0 0 0 1px var(--copper), 0 22px 50px rgba(0,0,0,.44); }
