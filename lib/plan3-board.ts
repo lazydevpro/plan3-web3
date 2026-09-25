@@ -8,7 +8,7 @@ export const WIDGET_IDS = [
 ] as const;
 
 export type WidgetId = typeof WIDGET_IDS[number];
-export type WidgetSize = "standard" | "wide";
+export type WidgetRect = { x: number; y: number; w: number; h: number };
 export type ProposalStatus = "pending" | "accepted" | "rejected";
 
 export type BoardThesis = {
@@ -30,7 +30,7 @@ export type BoardState = {
   version: 1;
   name: string;
   widgets: WidgetId[];
-  sizes: Partial<Record<WidgetId, WidgetSize>>;
+  layout: Partial<Record<WidgetId, WidgetRect>>;
   thesis: BoardThesis;
   monitor: BoardMonitor;
   activity: Array<{ at: string; label: string }>;
@@ -48,11 +48,52 @@ export type BoardProposal = {
 
 export const BOARD_STORAGE_KEY = "plan3.board.v1";
 
+const LEGACY_WIDE = new Set<WidgetId>(["watchlist", "regime", "performance", "categories", "rwa", "agent"]);
+const TALL_WIDGETS = new Set<WidgetId>(["performance", "categories", "rwa", "leaderboard", "chart", "agent"]);
+
+function preferredRect(id: WidgetId, wide = LEGACY_WIDE.has(id)): WidgetRect {
+  return { x: 0, y: 0, w: wide ? 532 : 344, h: TALL_WIDGETS.has(id) ? 290 : 250 };
+}
+
+function readRect(value: unknown): WidgetRect | null {
+  if (!value || typeof value !== "object") return null;
+  const input = value as Record<string, unknown>;
+  if (![input.x, input.y, input.w, input.h].every((part) => typeof part === "number" && Number.isFinite(part))) return null;
+  const { x, y, w, h } = input as WidgetRect;
+  return { x: Math.max(0, Math.min(50000, Math.round(x))), y: Math.max(0, Math.min(50000, Math.round(y))), w: Math.max(240, Math.min(10000, Math.round(w))), h: Math.max(160, Math.min(10000, Math.round(h))) };
+}
+
+export function completeLayout(widgets: WidgetId[], existing: Partial<Record<WidgetId, WidgetRect>> = {}, legacySizes: Record<string, unknown> = {}): BoardState["layout"] {
+  const layout: BoardState["layout"] = {};
+  for (const id of widgets) {
+    const rect = readRect(existing[id]);
+    if (rect) layout[id] = rect;
+  }
+  const hasSavedPositions = Object.keys(layout).length > 0;
+  let rowY = hasSavedPositions ? Math.max(...Object.values(layout).map((rect) => rect!.y + rect!.h)) + 16 : 0;
+  let rowX = 0;
+  let rowHeight = 0;
+  for (const id of widgets) {
+    if (layout[id]) continue;
+    const rect = preferredRect(id, legacySizes[id] === "wide" || (legacySizes[id] !== "standard" && LEGACY_WIDE.has(id)));
+    if (rowX && rowX + rect.w > 1120) { rowX = 0; rowY += rowHeight + 16; rowHeight = 0; }
+    layout[id] = { ...rect, x: rowX, y: rowY };
+    rowX += rect.w + 16;
+    rowHeight = Math.max(rowHeight, rect.h);
+  }
+  return layout;
+}
+
+export function addWidgetsToBoard(board: BoardState, incoming: WidgetId[]): BoardState {
+  const widgets = [...new Set([...board.widgets, ...incoming])];
+  return { ...board, widgets, layout: completeLayout(widgets, board.layout) };
+}
+
 export const defaultBoard: BoardState = {
   version: 1,
   name: "SOL momentum thesis",
   widgets: ["market", "watchlist", "regime", "performance", "movers", "categories", "fear", "benchmark", "liquidations", "rwa", "agent"],
-  sizes: { watchlist: "wide", regime: "wide", performance: "wide", categories: "wide", rwa: "wide", agent: "wide" },
+  layout: completeLayout(["market", "watchlist", "regime", "performance", "movers", "categories", "fear", "benchmark", "liquidations", "rwa", "agent"]),
   thesis: {
     summary: "SOL momentum needs volume confirmation and a check on leverage before a decision.",
     confidence: 50,
@@ -103,13 +144,12 @@ export function parseBoard(value: unknown): BoardState | null {
   if (input.version !== 1 || !Array.isArray(input.widgets)) return null;
   const widgets = [...new Set(input.widgets.filter(isWidgetId))].slice(0, WIDGET_IDS.length);
   const rawSizes = input.sizes && typeof input.sizes === "object" ? input.sizes as Record<string, unknown> : {};
-  const sizes: BoardState["sizes"] = {};
-  for (const id of widgets) if (rawSizes[id] === "wide" || rawSizes[id] === "standard") sizes[id] = rawSizes[id];
+  const rawLayout = input.layout && typeof input.layout === "object" ? input.layout as BoardState["layout"] : {};
   return {
     version: 1,
     name: typeof input.name === "string" && input.name.trim() ? input.name.trim().slice(0, 80) : defaultBoard.name,
     widgets,
-    sizes,
+    layout: completeLayout(widgets, rawLayout, rawSizes),
     thesis: readThesis(input.thesis),
     monitor: readMonitor(input.monitor),
     activity: Array.isArray(input.activity) ? input.activity.map((entry) => {

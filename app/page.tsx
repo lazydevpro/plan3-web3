@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, PointerEvent as ReactPointerEvent, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, BadgeDollarSign, BarChart3, Bot, Boxes, BrainCircuit, Check,
   ChartNoAxesCombined, CircleAlert, Clock3, Command,
@@ -8,7 +8,7 @@ import {
   History, Landmark, Layers3, ListOrdered, Menu,
   MousePointer2, PanelRight, PieChart, Plus, RefreshCw, Scale, Search,
   ServerCog, Share2, ShieldAlert, Sparkles, Table2, TrendingDown, TrendingUp,
-  Trophy, WalletCards, Waves, X, Zap, ArrowUp, ArrowDown, Copy, RotateCcw, Maximize2,
+  Trophy, WalletCards, Waves, X, Zap, ArrowDownRight, Copy, RotateCcw, Grip, BringToFront,
   LockKeyhole, BookOpen, Coins, Globe2, Radar, ShieldCheck, Users, BadgeCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -17,10 +17,12 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { ExtendedWidget, isExtendedWidget } from "@/components/extended-widgets";
 import { useCmcMarket } from "@/hooks/use-cmc-market";
 import type { CmcAssetQuote, CmcOverview } from "@/lib/cmc";
-import { BOARD_STORAGE_KEY, decodeBoard, defaultBoard, encodeBoard, parseBoard, isWidgetId } from "@/lib/plan3-board";
-import type { BoardProposal, BoardState, WidgetId } from "@/lib/plan3-board";
+import { BOARD_STORAGE_KEY, addWidgetsToBoard, decodeBoard, defaultBoard, encodeBoard, parseBoard, isWidgetId } from "@/lib/plan3-board";
+import type { BoardProposal, BoardState, WidgetId, WidgetRect } from "@/lib/plan3-board";
 
 type Mode = "Build" | "Live" | "Focus";
+type InteractionKind = "move" | "resize";
+type ActiveInteraction = { id: WidgetId; kind: InteractionKind; pointerId: number; clientX: number; clientY: number; scrollLeft: number; scrollTop: number; start: WidgetRect; current: WidgetRect };
 
 const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: typeof Activity; access: "Live" | "Full access" | "Plan3" | "Locked" }> = [
   { id: "market", name: "Asset snapshot", detail: "Price, volume, market cap and momentum", icon: Activity, access: "Live" },
@@ -85,8 +87,19 @@ export default function Home() {
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [libraryQuery, setLibraryQuery] = useState("");
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [gridVisible, setGridVisible] = useState(true);
+  const [layoutDraft, setLayoutDraft] = useState<{ id: WidgetId; rect: WidgetRect } | null>(null);
+  const canvasRef = useRef<HTMLElement | null>(null);
+  const interactionRef = useRef<ActiveInteraction | null>(null);
   const widgets = board.widgets;
   const proposal = board.monitor.status;
+  const stageBounds = useMemo(() => {
+    const rects = widgets.map((id) => layoutDraft?.id === id ? layoutDraft.rect : board.layout[id]).filter((rect): rect is WidgetRect => Boolean(rect));
+    return {
+      width: Math.max(1120, ...rects.map((rect) => rect.x + rect.w + 32)),
+      height: Math.max(680, ...rects.map((rect) => rect.y + rect.h + 96)),
+    };
+  }, [board.layout, layoutDraft, widgets]);
 
   const sol = market.data?.assets.find((asset) => asset.symbol === "SOL") ?? null;
   const selectedDefinition = widgetCatalog.find((widget) => widget.id === selected) ?? widgetCatalog[0];
@@ -156,7 +169,7 @@ export default function Home() {
       execute: (input) => {
         const id = (input as { widget?: WidgetId }).widget;
         if (!id || !widgetCatalog.some((item) => item.id === id)) throw new Error("Unsupported widget");
-        setBoard((current) => ({ ...current, widgets: current.widgets.includes(id) ? current.widgets : [...current.widgets, id] }));
+        setBoard((current) => addWidgetsToBoard(current, [id]));
         setSelected(id);
         return { widget: id, status: "added", requiresHumanApproval: id === "agent" };
       },
@@ -168,7 +181,7 @@ export default function Home() {
       inputSchema: { type: "object", properties: {}, additionalProperties: false },
       annotations: { readOnlyHint: false, untrustedContentHint: false },
       execute: () => {
-        setBoard((current) => ({ ...current, widgets: current.widgets.includes("agent") ? current.widgets : [...current.widgets, "agent"], monitor: { ...current.monitor, status: "pending" } }));
+        setBoard((current) => ({ ...addWidgetsToBoard(current, ["agent"]), monitor: { ...current.monitor, status: "pending" } }));
         setSelected("agent");
         return { status: "proposed", requiresHumanApproval: true };
       },
@@ -184,32 +197,78 @@ export default function Home() {
 
   const addWidget = (id: WidgetId) => {
     if (readOnly) return;
-    setBoard((current) => current.widgets.includes(id) ? current : addActivity({ ...current, widgets: [...current.widgets, id] }, `Added ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`));
+    setBoard((current) => current.widgets.includes(id) ? current : addActivity(addWidgetsToBoard(current, [id]), `Added ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`));
     setSelected(id);
     setInspectorOpen(true);
     setLibraryOpen(false);
+    requestAnimationFrame(() => document.getElementById(`widget-${id}`)?.scrollIntoView({ block: "center", inline: "center", behavior: "smooth" }));
   };
 
   const removeWidget = (id: WidgetId) => {
-    setBoard((current) => addActivity({ ...current, widgets: current.widgets.filter((item) => item !== id) }, `Removed ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`));
+    setBoard((current) => {
+      const layout = { ...current.layout };
+      delete layout[id];
+      return addActivity({ ...current, widgets: current.widgets.filter((item) => item !== id), layout }, `Removed ${widgetCatalog.find((item) => item.id === id)?.name ?? id}`);
+    });
     if (selected === id) setSelected(widgets.find((item) => item !== id) ?? "market");
   };
 
-  const moveWidget = (id: WidgetId, direction: -1 | 1) => {
-    setBoard((current) => {
-      const index = current.widgets.indexOf(id);
-      const next = index + direction;
-      if (index < 0 || next < 0 || next >= current.widgets.length) return current;
-      const widgets = [...current.widgets];
-      [widgets[index], widgets[next]] = [widgets[next], widgets[index]];
-      return addActivity({ ...current, widgets }, `Moved ${id} ${direction < 0 ? "up" : "down"}`);
-    });
+  const bringToFront = (id: WidgetId) => setBoard((current) => addActivity({ ...current, widgets: [...current.widgets.filter((item) => item !== id), id] }, `Brought ${id} to front`));
+
+  const startInteraction = (id: WidgetId, kind: InteractionKind, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (readOnly || mode !== "Build" || event.button !== 0) return;
+    const rect = board.layout[id];
+    if (!rect) return;
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    interactionRef.current = { id, kind, pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY, scrollLeft: canvasRef.current?.scrollLeft ?? 0, scrollTop: canvasRef.current?.scrollTop ?? 0, start: rect, current: rect };
+    setSelected(id);
+    setLayoutDraft({ id, rect });
   };
 
-  const toggleSize = (id: WidgetId) => setBoard((current) => {
-    const size = current.sizes[id] === "wide" ? "standard" : "wide";
-    return addActivity({ ...current, sizes: { ...current.sizes, [id]: size } }, `Set ${id} to ${size}`);
-  });
+  const updateInteraction = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const active = interactionRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    const canvas = canvasRef.current;
+    if (canvas) {
+      const viewport = canvas.getBoundingClientRect();
+      if (event.clientX > viewport.right - 32) canvas.scrollLeft += 18;
+      if (event.clientX < viewport.left + 32) canvas.scrollLeft -= 18;
+      if (event.clientY > viewport.bottom - 32) canvas.scrollTop += 18;
+      if (event.clientY < viewport.top + 32) canvas.scrollTop -= 18;
+    }
+    const dx = event.clientX - active.clientX + (canvas?.scrollLeft ?? 0) - active.scrollLeft;
+    const dy = event.clientY - active.clientY + (canvas?.scrollTop ?? 0) - active.scrollTop;
+    const rect = active.kind === "move"
+      ? { ...active.start, x: Math.max(0, Math.round(active.start.x + dx)), y: Math.max(0, Math.round(active.start.y + dy)) }
+      : { ...active.start, w: Math.max(240, Math.round(active.start.w + dx)), h: Math.max(160, Math.round(active.start.h + dy)) };
+    active.current = rect;
+    setLayoutDraft({ id: active.id, rect });
+  };
+
+  const finishInteraction = (event: ReactPointerEvent<HTMLButtonElement>, cancelled = false) => {
+    const active = interactionRef.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    interactionRef.current = null;
+    setLayoutDraft(null);
+    if (cancelled || (active.start.x === active.current.x && active.start.y === active.current.y && active.start.w === active.current.w && active.start.h === active.current.h)) return;
+    setBoard((current) => addActivity({ ...current, layout: { ...current.layout, [active.id]: active.current } }, `${active.kind === "move" ? "Moved" : "Resized"} ${active.id}`));
+  };
+
+  const nudgeWidget = (id: WidgetId, kind: InteractionKind, event: React.KeyboardEvent<HTMLButtonElement>) => {
+    const direction = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[event.key];
+    if (!direction) return;
+    event.preventDefault();
+    const step = event.shiftKey ? 1 : 10;
+    setBoard((current) => {
+      const rect = current.layout[id];
+      if (!rect) return current;
+      const [dx, dy] = direction;
+      const next = kind === "move" ? { ...rect, x: Math.max(0, rect.x + dx * step), y: Math.max(0, rect.y + dy * step) } : { ...rect, w: Math.max(240, rect.w + dx * step), h: Math.max(160, rect.h + dy * step) };
+      return { ...current, layout: { ...current.layout, [id]: next } };
+    });
+    setSelected(id);
+  };
 
   const submitAgent = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -231,7 +290,7 @@ export default function Home() {
 
   const acceptDraft = () => {
     if (!draft) return;
-    setBoard((current) => addActivity({ ...current, widgets: [...new Set([...current.widgets, ...draft.widgets])], thesis: draft.thesis, monitor: { ...draft.monitor, status: "accepted" } }, `Accepted analyst proposal: ${draft.prompt}`));
+    setBoard((current) => addActivity({ ...addWidgetsToBoard(current, draft.widgets), thesis: draft.thesis, monitor: { ...draft.monitor, status: "accepted" } }, `Accepted analyst proposal: ${draft.prompt}`));
     setSelected("thesis");
     setInspectorOpen(true);
     setDraft(null);
@@ -281,7 +340,7 @@ export default function Home() {
           <button className="rail-button focus-ring" type="button" aria-label="View board activity" onClick={() => setInspectorOpen(true)}><History aria-hidden="true" /></button>
         </nav>
         <nav className="rail-bottom">
-          <button className="rail-button focus-ring" type="button" aria-label="Toggle grid"><Grid2X2 aria-hidden="true" /></button>
+          <button className={`rail-button focus-ring ${gridVisible ? "is-active" : ""}`} type="button" aria-label={gridVisible ? "Hide grid" : "Show grid"} aria-pressed={gridVisible} onClick={() => setGridVisible((visible) => !visible)}><Grid2X2 aria-hidden="true" /></button>
           <button className={`rail-button focus-ring ${inspectorOpen ? "is-active" : ""}`} type="button" aria-label="Toggle inspector" onClick={() => setInspectorOpen((value) => !value)}><PanelRight aria-hidden="true" /></button>
         </nav>
       </aside>
@@ -313,9 +372,9 @@ export default function Home() {
         </section>
       )}
 
-      <section className={`canvas mode-${mode.toLowerCase()}`} aria-label="SOL momentum thesis board">
+      <section ref={canvasRef} className={`canvas mode-${mode.toLowerCase()} ${gridVisible ? "" : "grid-hidden"}`} aria-label={`${board.name} board`}>
         <div className="canvas-meta">
-          <span><Crosshair aria-hidden="true" /> Decision board</span>
+          <span><Crosshair aria-hidden="true" /> Decision board{!readOnly && mode === "Build" && <small className="canvas-hint" id="canvas-help"> · Drag a grip to move, a corner to resize. Arrow keys for precision.</small>}</span>
           <span className={market.error ? "source-error" : "live-source"}><i /> {sourceLabel(market.data?.mode, market.error, market.data?.retrievedAt)}</span>
         </div>
 
@@ -339,7 +398,7 @@ export default function Home() {
           <div className="draft-actions"><Button onClick={acceptDraft}><Check aria-hidden="true" /> Accept proposal</Button><Button variant="secondary" onClick={rejectDraft}><X aria-hidden="true" /> Reject</Button><small>CMC data retrieved {timeAgo(draft.sourceRetrievedAt)} · no trades are placed</small></div>
         </section>}
 
-        <div className="board-grid">
+        <div className="board-stage" style={{ width: stageBounds.width, height: stageBounds.height }}>
           {widgets.length === 0 ? (
             <div className="board-empty">
               <Grid2X2 aria-hidden="true" />
@@ -348,12 +407,12 @@ export default function Home() {
               {!readOnly && <Button onClick={() => setLibraryOpen(true)}><Plus aria-hidden="true" /> Add widget</Button>}
             </div>
           ) : widgets.map((id) => (
-            <WidgetShell key={id} id={id} size={board.sizes[id] ?? "standard"} selected={selected === id} readOnly={readOnly} mode={mode} onSelect={() => { setSelected(id); setInspectorOpen(true); }} onMove={(direction) => moveWidget(id, direction)} onSize={() => toggleSize(id)} onRemove={() => removeWidget(id)} canMoveEarlier={widgets.indexOf(id) > 0} canMoveLater={widgets.indexOf(id) < widgets.length - 1}>
+            <WidgetShell key={id} id={id} rect={layoutDraft?.id === id ? layoutDraft.rect : board.layout[id]!} selected={selected === id} active={layoutDraft?.id === id} readOnly={readOnly} mode={mode} onSelect={() => { setSelected(id); setInspectorOpen(true); }} onStart={(kind, event) => startInteraction(id, kind, event)} onPointerMove={updateInteraction} onPointerEnd={finishInteraction} onKeyMove={(kind, event) => nudgeWidget(id, kind, event)} onBringToFront={() => bringToFront(id)} onRemove={() => removeWidget(id)}>
               {renderWidget(id, market, sol, board, setProposal, readOnly)}
             </WidgetShell>
           ))}
-          {draft && !readOnly && draft.widgets.filter((id) => !widgets.includes(id)).map((id) => <article key={`draft-${id}`} className="widget widget-proposed" data-size={board.sizes[id] ?? "standard"}><span className="proposed-ribbon">AGENT PROPOSED · NOT ON BOARD</span>{renderWidget(id, market, sol, { ...board, thesis: draft.thesis, monitor: draft.monitor }, setProposal, true)}</article>)}
         </div>
+        {draft && !readOnly && draft.widgets.some((id) => !widgets.includes(id)) && <div className="proposal-preview" aria-label="Proposed widgets not yet on the board">{draft.widgets.filter((id) => !widgets.includes(id)).map((id) => <article key={`draft-${id}`} className="widget widget-proposed"><span className="proposed-ribbon">AGENT PROPOSED · NOT ON BOARD</span>{renderWidget(id, market, sol, { ...board, thesis: draft.thesis, monitor: draft.monitor }, setProposal, true)}</article>)}</div>}
 
         {!readOnly && <form className="agent-command" onSubmit={submitAgent}>
           <Bot aria-hidden="true" />
@@ -369,7 +428,7 @@ export default function Home() {
           <div className="inspector-head"><div><span className="eyebrow">INSPECTOR</span><h2>{selectedDefinition.name}</h2></div><Button variant="ghost" size="icon" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}><X aria-hidden="true" /></Button></div>
           <div className="inspector-status"><span className={selected === "agent" && proposal === "pending" ? "status-proposed" : "status-live"}><i />{readOnly ? "Shared snapshot" : selected === "agent" && proposal === "pending" ? "Awaiting approval" : "Live"}</span></div>
           <InspectorContent id={selected} data={market.data} sol={sol} proposal={proposal} board={board} />
-          {!readOnly && <>{selected === "thesis" && <InspectorSection title="Edit conclusion"><label className="sr-only" htmlFor="thesis-summary">Thesis summary</label><textarea id="thesis-summary" className="inspector-textarea" value={board.thesis.summary} onChange={(event) => setBoard((current) => ({ ...current, thesis: { ...current.thesis, summary: event.target.value.slice(0, 600) } }))} rows={4} /></InspectorSection>}{selected === "agent" && <InspectorSection title="Edit monitor"><label className="inspector-label" htmlFor="monitor-volume">Volume change below (%)</label><input id="monitor-volume" className="inspector-number" type="number" min="-100" max="100" step="0.1" value={board.monitor.volumeChangeBelow} onChange={(event) => setBoard((current) => ({ ...current, monitor: { ...current.monitor, volumeChangeBelow: Number(event.target.value) } }))} /></InspectorSection>}<InspectorSection title="Arrange widget"><div className="arrange-actions"><Button variant="secondary" onClick={() => moveWidget(selected, -1)} disabled={widgets.indexOf(selected) <= 0} aria-label="Move widget earlier"><ArrowUp aria-hidden="true" /> Earlier</Button><Button variant="secondary" onClick={() => moveWidget(selected, 1)} disabled={widgets.indexOf(selected) >= widgets.length - 1} aria-label="Move widget later"><ArrowDown aria-hidden="true" /> Later</Button></div><Button variant="secondary" className="size-button" onClick={() => toggleSize(selected)}>{board.sizes[selected] === "wide" ? "Use standard width" : "Use wide width"}</Button></InspectorSection><div className="inspector-actions"><Button variant="secondary" onClick={() => setMode("Focus")}><Focus aria-hidden="true" /> Focus</Button><Button variant="ghost" onClick={() => removeWidget(selected)}><X aria-hidden="true" /> Remove</Button></div></>}
+          {!readOnly && <>{selected === "thesis" && <InspectorSection title="Edit conclusion"><label className="sr-only" htmlFor="thesis-summary">Thesis summary</label><textarea id="thesis-summary" className="inspector-textarea" value={board.thesis.summary} onChange={(event) => setBoard((current) => ({ ...current, thesis: { ...current.thesis, summary: event.target.value.slice(0, 600) } }))} rows={4} /></InspectorSection>}{selected === "agent" && <InspectorSection title="Edit monitor"><label className="inspector-label" htmlFor="monitor-volume">Volume change below (%)</label><input id="monitor-volume" className="inspector-number" type="number" min="-100" max="100" step="0.1" value={board.monitor.volumeChangeBelow} onChange={(event) => setBoard((current) => ({ ...current, monitor: { ...current.monitor, volumeChangeBelow: Number(event.target.value) } }))} /></InspectorSection>}<InspectorSection title="Arrange widget"><p>Drag the grip to place this widget anywhere. Drag its lower corner to resize freely. Use arrow keys on either handle for 10px steps, or Shift + arrows for 1px.</p>{board.layout[selected] && <div className="layout-coordinates"><DataRow label="Position" value={`${board.layout[selected]!.x}, ${board.layout[selected]!.y}`} /><DataRow label="Size" value={`${board.layout[selected]!.w} × ${board.layout[selected]!.h}`} /></div>}<Button variant="secondary" className="size-button" onClick={() => bringToFront(selected)}><BringToFront aria-hidden="true" /> Bring to front</Button></InspectorSection><div className="inspector-actions"><Button variant="secondary" onClick={() => setMode("Focus")}><Focus aria-hidden="true" /> Focus</Button><Button variant="ghost" onClick={() => removeWidget(selected)}><X aria-hidden="true" /> Remove</Button></div></>}
         </aside>
       )}
       <Dialog open={Boolean(shareUrl)} onOpenChange={(open) => { if (!open) setShareUrl(""); }}><DialogContent><DialogHeader><DialogTitle>Share this board</DialogTitle><DialogDescription>People with access to this site can view a read-only snapshot of the layout, thesis and monitor. Market widgets load current CMC data when opened.</DialogDescription></DialogHeader><label className="sr-only" htmlFor="share-link">Read-only board link</label><input id="share-link" className="share-link-input" value={shareUrl} readOnly onFocus={(event) => event.target.select()} /><DialogFooter><Button onClick={async () => { try { await navigator.clipboard.writeText(shareUrl); setShareCopied(true); } catch { document.querySelector<HTMLInputElement>("#share-link")?.select(); } }}><Copy aria-hidden="true" /> {shareCopied ? "Copied" : "Copy link"}</Button></DialogFooter></DialogContent></Dialog>
@@ -377,8 +436,14 @@ export default function Home() {
   );
 }
 
-function WidgetShell({ id, size, selected, readOnly, mode, onSelect, onMove, onSize, onRemove, canMoveEarlier, canMoveLater, children }: { id: WidgetId; size: "standard" | "wide"; selected: boolean; readOnly: boolean; mode: Mode; onSelect: () => void; onMove: (direction: -1 | 1) => void; onSize: () => void; onRemove: () => void; canMoveEarlier: boolean; canMoveLater: boolean; children: React.ReactNode }) {
-  return <article className={`widget widget-${id}`} data-size={size} data-selected={selected} onFocusCapture={onSelect}>{children}{!readOnly && mode === "Build" ? <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="widget-manage focus-ring" aria-label={`Manage ${id}`}><Menu aria-hidden="true" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={onSelect}><Eye aria-hidden="true" /> Inspect</DropdownMenuItem><DropdownMenuItem onSelect={() => onMove(-1)} disabled={!canMoveEarlier}><ArrowUp aria-hidden="true" /> Move earlier</DropdownMenuItem><DropdownMenuItem onSelect={() => onMove(1)} disabled={!canMoveLater}><ArrowDown aria-hidden="true" /> Move later</DropdownMenuItem><DropdownMenuItem onSelect={onSize}><Maximize2 aria-hidden="true" /> {size === "wide" ? "Standard width" : "Wide width"}</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={onRemove}><X aria-hidden="true" /> Remove widget</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : <button type="button" className="widget-manage focus-ring" aria-label={`Inspect ${id}`} onClick={onSelect}><Eye aria-hidden="true" /></button>}</article>;
+function WidgetShell({ id, rect, selected, active, readOnly, mode, onSelect, onStart, onPointerMove, onPointerEnd, onKeyMove, onBringToFront, onRemove, children }: { id: WidgetId; rect: WidgetRect; selected: boolean; active: boolean; readOnly: boolean; mode: Mode; onSelect: () => void; onStart: (kind: InteractionKind, event: ReactPointerEvent<HTMLButtonElement>) => void; onPointerMove: (event: ReactPointerEvent<HTMLButtonElement>) => void; onPointerEnd: (event: ReactPointerEvent<HTMLButtonElement>, cancelled?: boolean) => void; onKeyMove: (kind: InteractionKind, event: React.KeyboardEvent<HTMLButtonElement>) => void; onBringToFront: () => void; onRemove: () => void; children: React.ReactNode }) {
+  const editing = !readOnly && mode === "Build";
+  return <article id={`widget-${id}`} className={`widget widget-${id}`} data-selected={selected} data-active={active} style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h }}>
+    <div className="widget-content">{children}</div>
+    {editing && <button type="button" className="widget-drag-handle focus-ring" aria-label={`Move ${id} widget. Drag or use arrow keys.`} aria-describedby="canvas-help" onPointerDown={(event) => onStart("move", event)} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={(event) => onPointerEnd(event, true)} onKeyDown={(event) => onKeyMove("move", event)}><Grip aria-hidden="true" /></button>}
+    {editing ? <DropdownMenu><DropdownMenuTrigger asChild><button type="button" className="widget-manage focus-ring" aria-label={`Manage ${id}`}><Menu aria-hidden="true" /></button></DropdownMenuTrigger><DropdownMenuContent align="end"><DropdownMenuItem onSelect={onSelect}><Eye aria-hidden="true" /> Inspect</DropdownMenuItem><DropdownMenuItem onSelect={onBringToFront}><BringToFront aria-hidden="true" /> Bring to front</DropdownMenuItem><DropdownMenuSeparator /><DropdownMenuItem variant="destructive" onSelect={onRemove}><X aria-hidden="true" /> Remove widget</DropdownMenuItem></DropdownMenuContent></DropdownMenu> : <button type="button" className="widget-manage focus-ring" aria-label={`Inspect ${id}`} onClick={onSelect}><Eye aria-hidden="true" /></button>}
+    {editing && <button type="button" className="widget-resize-handle focus-ring" aria-label={`Resize ${id} widget. Drag or use arrow keys.`} aria-describedby="canvas-help" onPointerDown={(event) => onStart("resize", event)} onPointerMove={onPointerMove} onPointerUp={onPointerEnd} onPointerCancel={(event) => onPointerEnd(event, true)} onKeyDown={(event) => onKeyMove("resize", event)}><ArrowDownRight aria-hidden="true" /></button>}
+  </article>;
 }
 
 function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol: CmcAssetQuote | null, board: BoardState, setProposal: (value: "pending" | "accepted" | "rejected") => void, readOnly: boolean) {
