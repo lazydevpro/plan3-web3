@@ -662,7 +662,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             <Download />
             <span>Export</span>
           </button>
-          <button onClick={share}>
+          <button onClick={share} aria-label="Share">
             <Share2 />
             <span>Share</span>
           </button>
