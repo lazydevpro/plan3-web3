@@ -4,18 +4,19 @@ import "./studio.css";
 
 import {
   Activity, BadgeDollarSign, BarChart3, Bot, Boxes, BrainCircuit, Check,
-  ChartNoAxesCombined, CircleAlert, Clock3, Command,
-  Crosshair, Database, Eye, Flame, Focus, Gauge, Grid2X2,
-  History, Landmark, Layers3, ListOrdered, Menu,
-  MousePointer2, PanelRight, PieChart, Plus, RefreshCw, Scale, Search,
-  ServerCog, Share2, ShieldAlert, Sparkles, Table2, TrendingDown, TrendingUp,
-  Trophy, WalletCards, Waves, X, Zap, ArrowDownRight, Copy, RotateCcw, Grip, BringToFront,
+  ChartNoAxesCombined, CircleAlert, Clock3,
+  Database, Eye, Flame, Gauge, Grid2X2,
+  Landmark, Layers3, ListOrdered, Menu,
+  PieChart, RefreshCw, Scale,
+  ServerCog, ShieldAlert, Sparkles, Table2, TrendingDown, TrendingUp,
+  Trophy, WalletCards, Waves, X, Zap,
   LockKeyhole, BookOpen, Coins, Globe2, Radar, ShieldCheck, Users, BadgeCheck,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ExtendedWidget, isExtendedWidget } from "@/components/extended-widgets";
 import { BuilderWorkspace } from "@/components/builder-workspace";
 import { useCmcMarket } from "@/hooks/use-cmc-market";
+import { useClock } from "@/hooks/use-clock";
 import type { CmcAssetQuote, CmcOverview } from "@/lib/cmc";
 import { defaultBoard } from "@/lib/plan3-board";
 import type { BoardState, WidgetId } from "@/lib/plan3-board";
@@ -68,7 +69,7 @@ const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: t
 
 export default function Home() {
   const market = useCmcMarket();
-  return <BuilderWorkspace market={market} catalog={widgetCatalog} renderPreset={(id, workspace) => renderWidget(id, market, market.data?.assets.find((asset) => asset.symbol === "SOL") ?? null, workspace.legacy ?? defaultBoard, () => undefined, true)} />;
+  return <BuilderWorkspace market={market} catalog={widgetCatalog} renderPreset={(id, workspace, setProposal) => renderWidget(id, market, market.data?.assets.find((asset) => asset.symbol === "SOL") ?? null, workspace.legacy ?? defaultBoard, setProposal ?? (() => undefined), !setProposal)} />;
 }
 
 function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol: CmcAssetQuote | null, board: BoardState, setProposal: (value: "pending" | "accepted" | "rejected") => void, readOnly: boolean) {
@@ -94,7 +95,7 @@ function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol
   if (id === "rwa") return <RwaWidget data={market.data} loading={market.loading} />;
   if (id === "apihealth") return <ApiHealthWidget data={market.data} loading={market.loading} />;
   if (id === "thesis") return <ThesisWidget thesis={board.thesis} />;
-  return <AgentWidget data={market.data} monitor={board.monitor} setProposal={setProposal} readOnly={readOnly} />;
+  return <AgentWidget data={market.error ? null : market.data} monitor={board.monitor} setProposal={setProposal} readOnly={readOnly} />;
 }
 
 function Header({ icon: Icon, kicker, title }: { icon: typeof Activity; kicker: string; title: string }) {
@@ -226,13 +227,14 @@ function ThesisWidget({ thesis }: { thesis: BoardState["thesis"] }) {
 }
 
 function AgentWidget({ data, monitor, setProposal, readOnly }: { data: CmcOverview | null; monitor: BoardState["monitor"]; setProposal: (value: "pending" | "accepted" | "rejected") => void; readOnly: boolean }) {
+  const now = useClock();
   const sol = data?.assets.find((asset) => asset.symbol === "SOL");
-  const hasInputs = sol?.change24h != null && sol.volumeChange24h != null && data?.derivatives.fundingRate != null;
+  const fresh = !!data && now - Date.parse(data.retrievedAt) < 180000 && data.health !== "unavailable" && data.feeds?.assets?.status !== "error" && data.feeds?.derivatives?.status !== "error";
+  const hasInputs = fresh && sol?.change24h != null && sol.volumeChange24h != null && data?.derivatives.fundingRate != null;
   const triggered = hasInputs && (sol?.change24h ?? 0) > 0 && (sol?.volumeChange24h ?? 0) < monitor.volumeChangeBelow && (data?.derivatives.fundingRate ?? 0) > monitor.fundingAbove;
   return <><div className="proposal-flag"><Bot aria-hidden="true" /> {monitor.status === "accepted" ? "MONITOR APPROVED" : monitor.status === "rejected" ? "MONITOR REJECTED" : "MONITOR PROPOSED"}</div><Header icon={BrainCircuit} kicker="AGENT MONITOR" title="Momentum crowding" /><p className="agent-copy">{monitor.description}</p><div className="rule-stack"><span>PRICE ↑</span><b>+</b><span>VOLUME &lt; {monitor.volumeChangeBelow}%</span><b>+</b><span>FUNDING &gt; {(monitor.fundingAbove * 100).toFixed(2)}%</span></div><div className="monitor-meta"><span><Clock3 aria-hidden="true" /> Checks on 60s data refresh</span><span>{hasInputs ? "3 live inputs" : "Waiting for inputs"}</span></div>{monitor.status === "pending" && !readOnly ? <div className="proposal-actions"><Button className="accept-button" onClick={() => setProposal("accepted")}><Check aria-hidden="true" /> Accept</Button><Button variant="ghost" onClick={() => setProposal("rejected")}><X aria-hidden="true" /> Reject</Button></div> : monitor.status === "accepted" ? <div className="active-monitor"><i /> {hasInputs ? triggered ? "Condition met on latest CMC refresh" : "No divergence on latest CMC refresh" : "Waiting for complete CMC inputs"}</div> : monitor.status === "rejected" && !readOnly ? <div className="rejected-monitor"><button type="button" onClick={() => setProposal("pending")}>Restore proposal</button></div> : null}</>;
 }
 
-function DataRow({ label, value }: { label: string; value: string }) { return <div className="data-row"><span>{label}</span><strong>{value}</strong></div>; }
 function WidgetSkeleton({ rows }: { rows: number }) { return <div className="widget-skeleton" aria-label="Loading market data">{Array.from({ length: rows }).map((_, index) => <i key={index} />)}</div>; }
 function WidgetEmpty({ label }: { label: string }) { return <div className="widget-empty"><CircleAlert aria-hidden="true" /><span>{label}</span></div>; }
 function AccessNeeded() { return <div className="access-needed"><Zap aria-hidden="true" /><div><strong>Full API widget</strong><span>Add the CMC key to load this live feed.</span></div></div>; }
@@ -269,4 +271,3 @@ function formatPrice(value: number | null) {
 function formatMoney(value: number | null) { return value == null ? "—" : new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 }).format(value); }
 function formatPercent(value: number | null, sign = true) { return value == null ? "—" : `${sign && value > 0 ? "+" : ""}${value.toFixed(2)}%`; }
 function timeAgo(iso: string) { const seconds = Math.round(Math.max(0, Date.now() - new Date(iso).getTime()) / 1000); if (seconds < 60) return `${seconds}s ago`; const minutes = Math.round(seconds / 60); return minutes < 60 ? `${minutes}m ago` : `${Math.round(minutes / 60)}h ago`; }
-function sourceLabel(mode?: "full" | "public", error?: string | null, retrievedAt?: string) { if (error) return "CMC connection interrupted"; if (!retrievedAt) return "Connecting to CMC…"; return `CMC ${mode === "full" ? "full API" : "public API"} · ${timeAgo(retrievedAt)}`; }

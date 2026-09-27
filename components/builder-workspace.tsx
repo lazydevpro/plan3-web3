@@ -1,4 +1,7 @@
 "use client";
+/* Browser storage hydration and WebMCP capability detection are external-system
+   synchronization. Their effects intentionally publish state after hydration. */
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import {
   useEffect,
@@ -33,10 +36,12 @@ import {
 import type { useCmcMarket } from "@/hooks/use-cmc-market";
 import {
   BOARD_STORAGE_KEY,
+  defaultBoard,
   decodeBoard,
   parseBoard,
   WIDGET_IDS,
   type WidgetId,
+  type BoardState,
 } from "@/lib/plan3-board";
 import {
   assetsFrom,
@@ -58,6 +63,8 @@ import {
   type WorkspaceBoard,
 } from "@/lib/workspace";
 import { BuilderWidget } from "./builder-widgets";
+import Image from "next/image";
+import { applyDraft, applyChanges, boardChanges, boardRevision, mergeBoard } from "@/lib/workspace-edits";
 
 type CatalogItem = {
   id: WidgetId;
@@ -68,14 +75,14 @@ type CatalogItem = {
 type Props = {
   market: ReturnType<typeof useCmcMarket>;
   catalog: CatalogItem[];
-  renderPreset: (id: WidgetId, board: WorkspaceBoard) => ReactNode;
+  renderPreset: (id: WidgetId, board: WorkspaceBoard, setProposal?: (status: "pending" | "accepted" | "rejected") => void) => ReactNode;
 };
 type History = {
   past: WorkspaceBoard[];
   present: WorkspaceBoard;
   future: WorkspaceBoard[];
 };
-type Panel = "library" | "edit" | "boards" | "agent" | null;
+type Panel = "library" | "edit" | "boards" | "agent" | "help" | "health" | null;
 const kindLabels: Record<BlockKind, string> = {
   metric: "Metric",
   chart: "Price chart",
@@ -100,18 +107,37 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   const [live, setLive] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  const [selection, setSelection] = useState<string[]>([]);
   const [draft, setDraft] = useState<Block | null>(null);
+  const draftBase = useRef<Block | null>(null);
+  const linkBase = useRef<Connection[]>([]);
+  const [draftLinks, setDraftLinks] = useState<Connection[]>([]);
+  const [legacyDraft, setLegacyDraft] = useState<BoardState>(defaultBoard);
+  const legacyBase = useRef<BoardState>(defaultBoard);
+  const savedBase = useRef(new Map<string, WorkspaceBoard>());
+  const [saveState, setSaveState] = useState("Opening…");
+  const [storageBlocked, setStorageBlocked] = useState(false);
+  const [revisions, setRevisions] = useState<Array<{ at: string; board: WorkspaceBoard }>>([]);
+  const [proposalBase, setProposalBase] = useState<WorkspaceBoard | null>(null);
+  const [acceptedKeys, setAcceptedKeys] = useState<string[]>([]);
+  const [proposalMode, setProposalMode] = useState<"new" | "patch">("new");
+  const [proposalReason, setProposalReason] = useState("");
+  const [agentAvailable, setAgentAvailable] = useState(false);
+  const shareDialog = useRef<HTMLDialogElement>(null);
+  const agentScroll = useRef<HTMLDivElement>(null);
+  const [snap, setSnap] = useState(false);
   const [creating, setCreating] = useState(false);
   const [query, setQuery] = useState("");
   const [zoom, setZoom] = useState(1);
   const [links, setLinks] = useState(true);
   const [notice, setNotice] = useState("");
   const [shareUrl, setShareUrl] = useState("");
+  const [copied, setCopied] = useState(false);
   const [relation, setRelation] = useState<Connection["relation"]>("supports");
   const [target, setTarget] = useState("");
   const [proposed, setProposed] = useState<WorkspaceBoard | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [drag, setDrag] = useState<{ id: string; rect: Block["rect"] } | null>(
+  const [drag, setDrag] = useState<{ id: string; rect: Block["rect"]; group: Record<string, Block["rect"]> } | null>(
     null,
   );
   const viewport = useRef<HTMLDivElement>(null);
@@ -125,6 +151,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     scrollY: number;
     start: Block["rect"];
     next: Block["rect"];
+    group: Record<string, Block["rect"]>;
   } | null>(null);
   const pan = useRef<{
     x: number;
@@ -134,7 +161,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   } | null>(null);
   const space = useRef(false);
   const latestContext = useRef({ board, data: market.data });
-  latestContext.current = { board, data: market.data };
+  useEffect(() => { latestContext.current = { board, data: market.data }; }, [board, market.data]);
   const assets = assetsFrom(market.data);
   const symbolOptions = [
     ...new Set([
@@ -147,6 +174,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   ];
   const activeBlock = board.blocks.find((b) => b.id === selected);
   const editable = !readOnly && !live;
+  const setExpanded = market.setExpanded;
+  useEffect(() => { setExpanded(board.blocks.some(b => b.kind === "preset") || panel === "library" || panel === "health"); }, [board.blocks, panel, setExpanded]);
   const bounds = {
     w: Math.max(
       1320,
@@ -154,7 +183,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         (b) =>
           (drag?.id === b.id
             ? drag.rect.x + drag.rect.w
-            : b.rect.x + b.rect.w) + 32,
+            : (drag?.group[b.id] ?? b.rect).x + b.rect.w) + 32,
       ),
     ),
     h: Math.max(
@@ -163,7 +192,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         (b) =>
           (drag?.id === b.id
             ? drag.rect.y + drag.rect.h
-            : b.rect.y + b.rect.h) + 48,
+            : (drag?.group[b.id] ?? b.rect).y + b.rect.h) + 48,
       ),
     ),
   };
@@ -211,6 +240,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   function remove(id: string) {
     commit((b) => removeBlock(b, id));
     setSelected(null);
+    setSelection(ids => ids.filter(i => i !== id));
     setPanel(null);
   }
   function duplicate(block: Block) {
@@ -222,6 +252,11 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     setNotice("Widget duplicated. Its configuration is independent.");
   }
   function openEditor(block: Block, isNew = false) {
+    legacyBase.current = structuredClone(board.legacy ?? defaultBoard);
+    setLegacyDraft(structuredClone(legacyBase.current));
+    draftBase.current = structuredClone(block);
+    linkBase.current = board.connections.filter(c => c.from === block.id || c.to === block.id);
+    setDraftLinks(structuredClone(linkBase.current));
     setDraft(structuredClone(block));
     setCreating(isNew);
     setSelected(isNew ? null : block.id);
@@ -231,22 +266,25 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   function add(block: Block) {
     if (board.blocks.length >= 100)
       return setNotice("A board supports up to 100 widgets.");
-    const bottom = board.blocks.length
-      ? Math.max(...board.blocks.map((b) => b.rect.y + b.rect.h)) + 16
-      : 0;
-    const added = { ...block, rect: { ...block.rect, x: 0, y: bottom } };
+    const left = Math.round((viewport.current?.scrollLeft ?? 0) / zoom);
+    const top = Math.round((viewport.current?.scrollTop ?? 0) / zoom);
+    let position = { ...block.rect, x: left, y: top };
+    for (let attempt = 0; attempt < 100 && board.blocks.some(b => position.x < b.rect.x + b.rect.w && position.x + position.w > b.rect.x && position.y < b.rect.y + b.rect.h && position.y + position.h > b.rect.y); attempt++) {
+      position = { ...position, y: position.y + 48 };
+    }
+    const added = { ...block, rect: position };
     commit((b) => ({ ...b, blocks: [...b.blocks, added] }));
     setSelected(added.id);
     setPanel(null);
     setDraft(null);
     requestAnimationFrame(() =>
       viewport.current?.scrollTo({
-        top: Math.max(0, bottom * zoom - 60),
-        behavior: "smooth",
+        top: Math.max(0, position.y * zoom - 24),
       }),
     );
   }
   function switchBoard(next: WorkspaceBoard, newBoard = false) {
+    setSelection([]);
     setBoards((all) => {
       const saved = all.filter(
         (b) => b.id !== board.id && (!newBoard || b.id !== next.id),
@@ -302,6 +340,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     );
   }
   function share() {
+    setCopied(false);
     try {
       const bytes = new TextEncoder().encode(JSON.stringify(board));
       const encoded = btoa(
@@ -368,20 +407,27 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         shared = true;
       }
     } catch (error) {
+      setStorageBlocked(true);
+      setSaveState("Storage needs recovery · export");
       setNotice(
         `${error instanceof Error ? error.message : "Could not load saved board"}. Original browser storage has not been deleted.`,
       );
     }
     setBoards(savedBoards.length ? savedBoards : [next]);
+    for (const b of savedBoards) savedBase.current.set(b.id, b);
     setHistory({ past: [], present: next, future: [] });
     setReadOnly(shared);
     setLive(shared);
+    if (!shared && !savedBoards.length) setPanel("help");
     setReady(true);
   }, []);
   useEffect(() => {
-    if (!ready || readOnly) return;
-    try {
-      // Preserve boards created in another tab, including a just-remixed snapshot.
+    if (!ready || readOnly || storageBlocked) return;
+    let cancelled = false;
+    setSaveState("Saving…");
+    const save = () => {
+      if (cancelled) return;
+      try {
       const stored = localStorage.getItem(WORKSPACE_KEY);
       const prior = stored ? (JSON.parse(stored) as Workspace) : null;
       const merged = new Map(boards.map((b) => [b.id, b]));
@@ -390,46 +436,82 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
           const valid = parseWorkspaceBoard(candidate, WIDGET_IDS, parseBoard);
           if (valid) merged.set(valid.id, valid);
         }
-      merged.set(board.id, board);
+      const remote = merged.get(board.id);
+      const base = savedBase.current.get(board.id);
+      const result = base && remote ? mergeBoard(base, board, remote) : { board, conflicts: [] };
+      let next = result.board;
+      if (result.conflicts.length) {
+        next = { ...board, id: uid(), name: `${board.name} · recovered edit`.slice(0, 100) };
+        setNotice("Another tab changed the same fields. Both versions are safe: your changes are in a recovered board. Compare them in Boards.");
+      } else if (JSON.stringify(next) !== JSON.stringify(board)) {
+        setNotice("Changes from another tab merged. Both sets of edits are preserved.");
+      }
+      merged.set(next.id, next);
+      if (remote && JSON.stringify(remote) !== JSON.stringify(next)) {
+        const key = `${WORKSPACE_KEY}.history.${board.id}`;
+        const old: Array<{ at: string; board: WorkspaceBoard }> = JSON.parse(localStorage.getItem(key) ?? "[]");
+        localStorage.setItem(key, JSON.stringify([{ at: new Date().toISOString(), board: remote }, ...(Array.isArray(old) ? old : [])].slice(0, 12)));
+      }
       localStorage.setItem(
         WORKSPACE_KEY,
-        JSON.stringify({ activeId: board.id, boards: [...merged.values()] }),
+        JSON.stringify({ activeId: next.id, boards: [...merged.values()] }),
       );
+      savedBase.current.set(next.id, next);
+      setSaveState("Saved locally");
+      if (JSON.stringify(next) !== JSON.stringify(board)) {
+        setBoards([...merged.values()]);
+        setHistory(h => h.present === board ? { past: [], present: next, future: [] } : h);
+        setPanel(null);
+      }
     } catch {
+      setSaveState("Not saved · export now");
       setNotice(
         "Browser storage is full or unavailable. Export your board to keep it.",
       );
-    }
-  }, [board, boards, ready, readOnly]);
+    }};
+    // Web Locks serializes read/merge/write across tabs on this origin.
+    if (navigator.locks) void navigator.locks.request(WORKSPACE_KEY, save);
+    else { setSaveState("Autosave unsupported · export now"); setNotice("This browser cannot safely coordinate saves. Export your board, or use a browser with Web Locks support."); }
+    return () => { cancelled = true; };
+  }, [board, boards, ready, readOnly, storageBlocked]);
+  useEffect(() => {
+    if (panel !== "boards") return;
+    try {
+      const saved = JSON.parse(localStorage.getItem(`${WORKSPACE_KEY}.history.${board.id}`) ?? "[]") as Array<{ at: string; board: unknown }>;
+      setRevisions(Array.isArray(saved) ? saved.flatMap(r => { const parsed = parseWorkspaceBoard(r.board, WIDGET_IDS, parseBoard); return parsed && typeof r.at === "string" ? [{ at: r.at, board: parsed }] : []; }).slice(0, 12) : []);
+    } catch { setRevisions([]); }
+  }, [panel, board.id, board]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement;
-      if (el.closest("input,textarea,select,[contenteditable=true]")) return;
-      if (event.code === "Space") {
-        space.current = true;
-        event.preventDefault();
-      }
       if (event.key === "Escape") {
         setPanel(null);
         setShareUrl("");
         setSelected(null);
+        setSelection([]);
+        return;
+      }
+      if (el.closest("input,textarea,select,[contenteditable=true],dialog") || shareUrl) return;
+      if (event.code === "Space" && !el.closest("button,a")) {
+        space.current = true;
+        event.preventDefault();
       }
       if (!editable) return;
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
-        event.shiftKey ? redo() : undo();
+        if (event.shiftKey) redo(); else undo();
       }
       if (
         (event.ctrlKey || event.metaKey) &&
         event.key.toLowerCase() === "d" &&
-        activeBlock
+        activeBlock && !el.closest("button,a")
       ) {
         event.preventDefault();
         duplicate(activeBlock);
       }
       if (
         (event.key === "Delete" || event.key === "Backspace") &&
-        activeBlock
+        activeBlock && el.closest(".studio-viewport")
       ) {
         event.preventDefault();
         remove(activeBlock.id);
@@ -448,8 +530,17 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     };
   });
   useEffect(() => {
+    if (!shareUrl) return;
+    const trigger = document.activeElement as HTMLElement | null;
+    const dialog = shareDialog.current;
+    dialog?.showModal();
+    return () => { dialog?.close(); trigger?.focus(); };
+  }, [shareUrl]);
+  useEffect(() => { if (proposed) agentScroll.current?.scrollTo(0, 0); }, [proposed]);
+  useEffect(() => {
     const context = document.modelContext;
     if (!context?.registerTool) return;
+    setAgentAvailable(true);
     const lifecycle = new AbortController();
     void Promise.resolve(
       context.registerTool(
@@ -470,6 +561,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             assets: assetsFrom(latestContext.current.data),
             retrievedAt: latestContext.current.data?.retrievedAt,
             schemaVersion: 2,
+            revision: boardRevision(latestContext.current.board),
           }),
         },
         { signal: lifecycle.signal },
@@ -482,22 +574,27 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             name: "propose_workspace",
             title: "Propose Plan3 workspace",
             description:
-              "Stage a complete version 2 board manifest for human review. Never applies automatically. Read the existing manifest first; preserve existing blocks unless requested otherwise. JSON must match the current manifest shape.",
+              "Stage a complete version 2 board manifest for selective human review on the current board. Never applies automatically. Read the existing manifest first and pass its revision as baseRevision. Preserve existing IDs unless adding widgets. JSON must match the current manifest shape.",
             inputSchema: {
               type: "object",
               properties: {
+                baseRevision: { type: "string", description: "Exact revision from read_workspace. Stale revisions are rejected." },
+                rationale: { type: "string", description: "Explain why these changes help answer the user's question, with source references where available. Maximum 2000 characters." },
                 manifest: {
                   type: "string",
                   description:
                     "JSON string containing the proposed full board manifest",
                 },
               },
-              required: ["manifest"],
+              required: ["manifest", "baseRevision", "rationale"],
               additionalProperties: false,
             },
             annotations: { readOnlyHint: false, untrustedContentHint: true },
             execute: (input) => {
               try {
+                if ((input as { baseRevision?: string }).baseRevision !== boardRevision(latestContext.current.board)) return { error: "The board changed. Read the workspace again and submit a proposal based on its current revision." };
+                const rationale = (input as { rationale?: string }).rationale;
+                if (typeof rationale !== "string" || !rationale.trim() || rationale.length > 2000) return { error: "Explain the proposal in 1–2000 characters. No changes applied." };
                 const parsed = parseWorkspaceBoard(
                   JSON.parse((input as { manifest: string }).manifest),
                   WIDGET_IDS,
@@ -506,6 +603,10 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 if (!parsed)
                   return { error: "Invalid manifest; no changes applied." };
                 setProposed(parsed);
+                setProposalReason(rationale);
+                setProposalMode("patch");
+                setProposalBase(structuredClone(latestContext.current.board));
+                setAcceptedKeys(boardChanges(latestContext.current.board, parsed).map(c => c.key));
                 setPanel("agent");
                 return {
                   status: "awaiting_human_approval",
@@ -527,11 +628,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     block: Block,
     kind: "move" | "resize",
   ) {
-    if (!editable || event.button !== 0) return;
+    if (!editable || block.locked || event.button !== 0) return;
     event.stopPropagation();
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setSelected(block.id);
+    const ids = selection.includes(block.id) ? selection : [block.id];
+    setSelection(ids);
     gesture.current = {
       id: block.id,
       kind,
@@ -541,6 +644,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       scrollY: viewport.current?.scrollTop ?? 0,
       start: block.rect,
       next: block.rect,
+      group: Object.fromEntries(board.blocks.filter(b => ids.includes(b.id) && !b.locked).map(b => [b.id, b.rect])),
     };
   }
   function moveGesture(event: ReactPointerEvent<HTMLButtonElement>) {
@@ -567,7 +671,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             w: Math.max(240, Math.min(10000, Math.round(g.start.w + dx))),
             h: Math.max(160, Math.min(10000, Math.round(g.start.h + dy))),
           };
-    setDrag({ id: g.id, rect: g.next });
+    if (snap && g.kind === "move") g.next = { ...g.next, x: Math.round(g.next.x / 16) * 16, y: Math.round(g.next.y / 16) * 16 };
+    if (g.kind === "move") {
+      const rects = Object.values(g.group);
+      g.next.x = g.start.x + Math.max(-Math.min(...rects.map(r => r.x)), Math.min(50000 - Math.max(...rects.map(r => r.x)), g.next.x - g.start.x));
+      g.next.y = g.start.y + Math.max(-Math.min(...rects.map(r => r.y)), Math.min(50000 - Math.max(...rects.map(r => r.y)), g.next.y - g.start.y));
+    }
+    setDrag({ id: g.id, rect: g.next, group: g.kind === "move" ? Object.fromEntries(Object.entries(g.group).map(([id, r]) => [id, { ...r, x: r.x + g.next.x - g.start.x, y: r.y + g.next.y - g.start.y }])) : {} });
   }
   function endGesture(cancel = false) {
     const g = gesture.current;
@@ -575,7 +685,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       commit((b) => ({
         ...b,
         blocks: b.blocks.map((w) =>
-          w.id === g.id ? { ...w, rect: g.next } : w,
+          g.kind === "move" && g.group[w.id] ? { ...w, rect: { ...w.rect, x: g.group[w.id].x + g.next.x - g.start.x, y: g.group[w.id].y + g.next.y - g.start.y } } : w.id === g.id ? { ...w, rect: g.next } : w,
         ),
       }));
     gesture.current = null;
@@ -583,7 +693,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   }
   function nudge(event: React.KeyboardEvent, block: Block, resize = false) {
     if (
-      !editable ||
+      !editable || block.locked ||
       !["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(event.key)
     )
       return;
@@ -631,6 +741,9 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     const note = next.blocks.find((b) => b.kind === "note")!;
     note.config.text = `Research question\n${prompt}\n\nTo investigate\nCompare price, volume intensity and peer returns. Edit the condition to state what would invalidate your idea.\n\nThis is a rule-based starter, not an AI-generated conclusion.`;
     setProposed(next);
+    setProposalReason("A rule-based starter combining price, volume, peer comparison and an editable invalidation condition. Check every assumption before using it.");
+    setProposalMode("new");
+    setProposalBase(null);
   }
 
   if (!ready)
@@ -639,7 +752,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     <main className="studio">
       <header className="studio-header">
         <div className="studio-brand">
-          <img src="/plan3-symbol.svg" alt="" />
+          <Image src="/plan3-symbol.svg" alt="" width={28} height={28} unoptimized />
           <strong>
             PLAN<sup>3</sup>
           </strong>
@@ -655,7 +768,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         </button>
         <div className="studio-saved">
           <Check />
-          {readOnly ? "Shared snapshot" : "Saved locally"}
+          {readOnly ? "Shared snapshot" : saveState}
         </div>
         <div className="studio-header-actions">
           <button onClick={download} title="Export board manifest">
@@ -668,16 +781,14 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
           </button>
           {readOnly ? (
             <button className="studio-primary" onClick={remix}>
-              Remix board
+              <Copy /><span>Remix board</span>
             </button>
           ) : (
             <button
               className="studio-primary"
               onClick={() => {
                 setLive(false);
-                setPanel("edit");
-                setCreating(true);
-                setDraft(makeBlock("metric"));
+                openEditor(makeBlock("metric"), true);
               }}
             >
               <Plus />
@@ -753,13 +864,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
           >
             <RefreshCw className={market.refreshing ? "is-spinning" : ""} />
           </button>
-          <span className="studio-data-state">
+          <button className="studio-data-state" onClick={() => setPanel(panel === "health" ? null : "health")} aria-label="Inspect data health">
             {market.loading
               ? "Connecting…"
               : market.error
                 ? "Data error"
-                : `CMC · ${market.data?.mode ?? "unavailable"}`}
-          </span>
+                : `CMC · ${market.data?.health ?? "unavailable"}`}
+          </button>
         </div>
       </div>
       <div className="studio-body">
@@ -789,15 +900,10 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             <span>Agent</span>
           </button>
           <div className="studio-rail-bottom">
-            <a
-              href="/competitive-research.html"
-              target="_blank"
-              rel="noreferrer"
-              title="Product research"
-            >
+            <button onClick={() => setPanel(panel === "help" ? null : "help")} title="Workspace guide">
               <ArrowUpRight />
-              <span>Research</span>
-            </a>
+              <span>Guide</span>
+            </button>
           </div>
         </nav>
         <section className="studio-workarea">
@@ -815,6 +921,21 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 : "Observe mode · layout locked"}
             </span>
           </div>
+          {editable && <div className="studio-build-tools">
+            <button aria-pressed={snap} onClick={() => setSnap(!snap)}>{snap ? "Snap · on" : "Snap · off"}</button>
+            <span>Optional 16px guides · free placement by default</span>
+            {selection.length > 1 && <>
+              <strong>{selection.length} selected</strong>
+              <button onClick={() => commit(b => { const items = b.blocks.filter(w => selection.includes(w.id) && !w.locked); const x = Math.min(...items.map(w => w.rect.x)); return { ...b, blocks: b.blocks.map(w => items.includes(w) ? { ...w, rect: { ...w.rect, x } } : w) }; })}>Align left</button>
+              <button onClick={() => commit(b => { const items = b.blocks.filter(w => selection.includes(w.id) && !w.locked); const y = Math.min(...items.map(w => w.rect.y)); return { ...b, blocks: b.blocks.map(w => items.includes(w) ? { ...w, rect: { ...w.rect, y } } : w) }; })}>Align top</button>
+              <button onClick={() => setSelection([])}>Clear selection</button>
+            </>}
+            {activeBlock && <>
+              <button onClick={() => commit(b => ({ ...b, blocks: b.blocks.map(w => w.id === activeBlock.id ? { ...w, locked: !w.locked } : w) }))}>{activeBlock.locked ? "Unlock position" : "Lock position"}</button>
+              <button onClick={() => commit(b => ({ ...b, blocks: [...b.blocks.filter(w => w.id !== activeBlock.id), ...b.blocks.filter(w => w.id === activeBlock.id)] }))}>Bring to front</button>
+              <button onClick={() => commit(b => ({ ...b, blocks: [...b.blocks.filter(w => w.id === activeBlock.id), ...b.blocks.filter(w => w.id !== activeBlock.id)] }))}>Send to back</button>
+            </>}
+          </div>}
           <div
             className="studio-viewport"
             ref={viewport}
@@ -880,8 +1001,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       const from = board.blocks.find((b) => b.id === c.from),
                         to = board.blocks.find((b) => b.id === c.to);
                       if (!from || !to) return null;
-                      const a = drag?.id === from.id ? drag.rect : from.rect,
-                        b = drag?.id === to.id ? drag.rect : to.rect;
+                      const a = drag?.id === from.id ? drag.rect : drag?.group[from.id] ?? from.rect,
+                        b = drag?.id === to.id ? drag.rect : drag?.group[to.id] ?? to.rect;
                       const x1 = a.x + a.w,
                         y1 = a.y + a.h / 2,
                         x2 = b.x,
@@ -928,11 +1049,11 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     )}
                   </div>
                 )}
-                {board.blocks.map((block) => {
-                  const rect = drag?.id === block.id ? drag.rect : block.rect;
+                {board.blocks.map((block, blockIndex) => {
+                  const rect = drag?.id === block.id ? drag.rect : drag?.group[block.id] ?? block.rect;
                   return (
                     <article
-                      className={`studio-block ${selected === block.id ? "is-selected" : ""}`}
+                      className={`studio-block ${selected === block.id || selection.includes(block.id) ? "is-selected" : ""}`}
                       key={block.id}
                       data-block-id={block.id}
                       data-kind={block.kind}
@@ -943,19 +1064,17 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         height: rect.h,
                         zIndex:
                           drag?.id === block.id
-                            ? 10
-                            : selected === block.id
-                              ? 3
-                              : 2,
+                            ? 200
+                            : blockIndex + 2,
                       }}
-                      onClick={() => setSelected(block.id)}
+                      onClick={(event) => { setSelected(block.id); if (event.shiftKey) setSelection(ids => ids.includes(block.id) ? ids.filter(id => id !== block.id) : [...ids, block.id]); }}
                     >
                       <header className="studio-block-header">
                         <button
                           className="studio-grip"
                           title={`Move ${block.title}`}
                           aria-label={`Move ${block.title}`}
-                          disabled={!editable}
+                          disabled={!editable || block.locked}
                           onPointerDown={(e) => {
                             if (!space.current) startGesture(e, block, "move");
                           }}
@@ -969,6 +1088,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         </button>
                         {editable && (
                           <>
+                            <button title={`Select ${block.title}`} aria-pressed={selection.includes(block.id)} onClick={e => { e.stopPropagation(); setSelected(block.id); setSelection(ids => ids.includes(block.id) ? ids.filter(id => id !== block.id) : [...ids, block.id]); }}><Check /></button>
                             <button
                               title={`Duplicate ${block.title}`}
                               onClick={() => duplicate(block)}
@@ -986,17 +1106,18 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       </header>
                       <div className="studio-block-content">
                         {block.kind === "preset" && block.config.preset ? (
-                          renderPreset(block.config.preset, board)
+                          renderPreset(block.config.preset, board, editable ? status => commit(b => ({ ...b, legacy: { ...(b.legacy ?? defaultBoard), monitor: { ...(b.legacy ?? defaultBoard).monitor, status } } })) : undefined)
                         ) : (
                           <BuilderWidget
                             block={block}
                             board={board}
                             data={market.data}
                             failed={!!market.error}
+                            loading={market.loading}
                           />
                         )}
                       </div>
-                      {editable && (
+                      {editable && !block.locked && (
                         <button
                           className="studio-resize"
                           aria-label={`Resize ${block.title}`}
@@ -1021,7 +1142,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             <span>
               {readOnly
                 ? "Read-only snapshot · live market values"
-                : "Local-first · no trades executed"}
+                : `${saveState} · no trades executed`}
             </span>
             <div>
               <button
@@ -1066,7 +1187,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       ? "Start with a widget"
                       : panel === "boards"
                         ? "Boards & playbooks"
-                        : "Build with context"}
+                        : panel === "help" ? "Your research loop" : panel === "health" ? "Data health" : "Build with context"}
                 </h2>
               </div>
               <button onClick={() => setPanel(null)} aria-label="Close panel">
@@ -1099,6 +1220,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   />
                 </label>
                 <div className="studio-preset-list">
+                  {!catalog.some(c => `${c.name} ${c.detail}`.toLowerCase().includes(query.toLowerCase())) && <div className="studio-panel-intro"><h3>No matching widgets</h3><p>Try “price”, “volume”, or build your own instrument.</p><button onClick={() => setQuery("")}>Clear search</button></div>}
                   {catalog
                     .filter((c) =>
                       `${c.name} ${c.detail}`
@@ -1145,6 +1267,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       }
                     />
                   </label>
+                  {draft.kind === "preset" && draft.config.preset === "thesis" && <label>Thesis summary<textarea rows={5} maxLength={1200} value={legacyDraft.thesis.summary} onChange={e => setLegacyDraft({ ...legacyDraft, thesis: { ...legacyDraft.thesis, summary: e.target.value } })} /><small>This legacy thesis is shared by thesis presets on this board. Use a note for an independent thesis.</small></label>}
+                  {draft.kind === "preset" && draft.config.preset === "agent" && <fieldset><legend>Board monitor · human approval</legend>
+                    <label>Description<textarea rows={3} maxLength={400} value={legacyDraft.monitor.description} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, description: e.target.value } })} /></label>
+                    <label>Volume change below (%)<input type="number" value={legacyDraft.monitor.volumeChangeBelow} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, volumeChangeBelow: Number(e.target.value) || 0 } })} /></label>
+                    <label>Funding above (%)<input type="number" step="0.01" value={legacyDraft.monitor.fundingAbove * 100} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, fundingAbove: (Number(e.target.value) || 0) / 100 } })} /></label>
+                    <label>Approval<select value={legacyDraft.monitor.status} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, status: e.target.value as "pending" | "accepted" | "rejected" } })}><option value="pending">Pending review</option><option value="accepted">Approved</option><option value="rejected">Rejected</option></select></label>
+                  </fieldset>}
                   {draft.kind !== "preset" && (
                     <>
                       <label>
@@ -1216,6 +1345,11 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       )}
                       {["table", "ranking"].includes(draft.kind) && (
                         <>
+                          <label>Minimum value · selected calculation<input type="number" placeholder="No minimum" value={draft.config.minimum ?? ""} onChange={e => patchConfig({ minimum: e.target.value === "" ? null : Number(e.target.value) })} /><small>Only show rows at or above this value.</small></label>
+                          {draft.kind === "table" && <fieldset><legend>Visible columns · up to six</legend><div className="studio-symbols">{Object.entries(METRICS).map(([metric, info]) => {
+                            const columns = draft.config.columns ?? [...new Set([draft.config.metric, "price" as Metric])];
+                            return <label key={metric}><input type="checkbox" checked={columns.includes(metric as Metric)} disabled={!columns.includes(metric as Metric) && columns.length >= 6} onChange={e => { const next = e.target.checked ? [...columns, metric as Metric] : columns.filter(m => m !== metric); if (next.length) patchConfig({ columns: next }); }} />{info.label}</label>;
+                          })}</div></fieldset>}
                           <div className="studio-field-row">
                             <label>
                               Sort
@@ -1341,18 +1475,20 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     </>
                   )}
                   <section className="studio-preview-section">
+                    {draft.kind === "chart" && <label>History window<select value={draft.config.historyDays ?? 14} onChange={e => patchConfig({ historyDays: Number(e.target.value) as 7 | 14 })}><option value={7}>Last 7 daily observations</option><option value={14}>Last 14 daily observations</option></select></label>}
                     <span className="eyebrow">
                       ACTUAL PREVIEW · CURRENT DATA
                     </span>
                     <div className="studio-editor-preview">
                       {draft.kind === "preset" && draft.config.preset ? (
-                        renderPreset(draft.config.preset, board)
+                        renderPreset(draft.config.preset, { ...board, legacy: legacyDraft })
                       ) : (
                         <BuilderWidget
                           block={draft}
                           board={board}
                           data={market.data}
                           failed={!!market.error}
+                          loading={market.loading}
                         />
                       )}
                     </div>
@@ -1405,7 +1541,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                           These are your assertions, not automated causal
                           findings.
                         </p>
-                        {board.connections
+                        {draftLinks
                           .filter(
                             (c) => c.from === draft.id || c.to === draft.id,
                           )
@@ -1422,12 +1558,9 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                               <button
                                 aria-label="Remove evidence link"
                                 onClick={() =>
-                                  commit((b) => ({
-                                    ...b,
-                                    connections: b.connections.filter(
+                                  setDraftLinks(links => links.filter(
                                       (link) => link.id !== c.id,
-                                    ),
-                                  }))
+                                    ))
                                 }
                               >
                                 <X />
@@ -1473,12 +1606,12 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         <button
                           disabled={!target}
                           onClick={() => {
-                            if (board.connections.length >= 200)
+                            if (board.connections.filter(c => c.from !== draft.id && c.to !== draft.id).length + draftLinks.length >= 200)
                               return setNotice(
                                 "Maximum 200 evidence links per board.",
                               );
                             if (
-                              board.connections.some(
+                              draftLinks.some(
                                 (c) =>
                                   c.from === draft.id &&
                                   c.to === target &&
@@ -1488,18 +1621,15 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                               return setNotice(
                                 "That relationship already exists.",
                               );
-                            commit((b) => ({
-                              ...b,
-                              connections: [
-                                ...b.connections,
+                            setDraftLinks(links => [
+                                ...links,
                                 {
                                   id: uid(),
                                   from: draft.id,
                                   to: target,
                                   relation,
                                 },
-                              ],
-                            }));
+                              ]);
                             setTarget("");
                           }}
                         >
@@ -1525,13 +1655,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     onClick={() => {
                       if (creating) add(draft);
                       else {
-                        commit((b) => ({
-                          ...b,
-                          blocks: b.blocks.map((w) =>
-                            w.id === draft.id ? draft : w,
-                          ),
-                        }));
+                        commit(b => {
+                          const next = applyDraft(b, draftBase.current ?? draft, draft, draftLinks, linkBase.current);
+                          if (draft.kind !== "preset" || !["thesis", "agent"].includes(draft.config.preset ?? "")) return next;
+                          return mergeBoard({ ...next, legacy: legacyBase.current }, { ...next, legacy: legacyDraft }, { ...next, legacy: b.legacy ?? defaultBoard }).board;
+                        });
                         setPanel(null);
+                        setNotice("Widget and evidence links saved. Undo is available.");
                       }
                     }}
                   >
@@ -1627,12 +1757,17 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       Boards stay in this browser. Export for backups; share a
                       snapshot for others to remix.
                     </p>
+                    <span className="eyebrow">RECOVERY HISTORY · LAST 12 SAVES</span>
+                    <p className="studio-subtle">Restore an earlier version as a separate board. Your current work stays intact. History is local to this browser.</p>
+                    {!revisions.length && <p className="studio-subtle">Your next saved change will create the first recovery point.</p>}
+                    {revisions.map((revision, index) => <button className="studio-board-row" key={`${revision.at}-${index}`} onClick={() => { switchBoard({ ...revision.board, id: uid(), name: `${revision.board.name} · restored`.slice(0, 100) }, true); setNotice("Earlier version restored as a new board. Original work preserved."); }}><Undo2 /><span>{new Date(revision.at).toLocaleString()}<small>{revision.board.blocks.length} widgets · {revision.board.connections.length} links · Restore as copy</small></span></button>)}
                   </>
                 )}
               </div>
             )}
             {panel === "agent" && (
-              <div className="studio-panel-scroll">
+              <div className="studio-panel-scroll" ref={agentScroll}>
+                {!proposed && <>
                 <div className="studio-agent-note">
                   <Sparkles />
                   <h3>One canvas. A shared language.</h3>
@@ -1665,48 +1800,64 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   <Sparkles />
                   Preview a research board
                 </button>
+                </>}
                 {proposed && (
                   <section className="studio-proposal">
                     <span className="eyebrow">REVIEW BEFORE APPLYING</span>
                     <h3>{proposed.name}</h3>
+                    <p>{proposalReason}</p>
                     <p>
                       {proposed.blocks.length} proposed widgets ·{" "}
                       {proposed.connections.length} links · {proposed.asset}
                     </p>
-                    <ul>
+                    {proposalMode === "patch" && proposalBase ? <>
+                      <p>Review individual changes to this board. Unchecked changes stay untouched.</p>
+                      <div className="studio-change-list">
+                        {boardChanges(proposalBase, proposed).map(change => <label key={change.key} className="studio-change">
+                          <input type="checkbox" checked={acceptedKeys.includes(change.key)} onChange={e => setAcceptedKeys(keys => e.target.checked ? [...keys, change.key] : keys.filter(k => k !== change.key))} />
+                          <span><strong>{change.label}</strong><small>Before: {change.before}</small><small>After: {change.after}</small>
+                          {change.category === "widget" && <details><summary>Changed properties</summary><pre>{JSON.stringify({ before: proposalBase.blocks.find(b => b.id === change.id), after: proposed.blocks.find(b => b.id === change.id) }, null, 2)}</pre></details>}</span>
+                        </label>)}
+                      </div>
+                      {JSON.stringify(board) !== JSON.stringify(proposalBase) && <p role="alert">This board changed after the proposal. Ask the agent to read it again and submit a fresh proposal; nothing will be overwritten.</p>}
+                    </> : <ul>
                       {proposed.blocks.map((b) => (
                         <li key={b.id}>
                           {b.title} <small>{kindLabels[b.kind]}</small>
                         </li>
                       ))}
-                    </ul>
+                    </ul>}
                     <details className="studio-manifest">
                       <summary>Inspect all proposed settings</summary>
                       <pre>{JSON.stringify(proposed, null, 2)}</pre>
                     </details>
                     <p className="studio-subtle">
-                      Creates a separate board. Your current board stays
-                      unchanged.
+                      {proposalMode === "new" ? "Creates a separate board. Your current board stays unchanged." : "Applies selected changes in one undoable step. Links to excluded or removed widgets are omitted."}
                     </p>
                     <div className="studio-field-row">
                       <button onClick={() => setProposed(null)}>Dismiss</button>
                       <button
                         className="studio-primary"
-                        disabled={readOnly}
+                        disabled={readOnly || (proposalMode === "patch" && (!acceptedKeys.length || JSON.stringify(board) !== JSON.stringify(proposalBase)))}
                         onClick={() => {
-                          switchBoard({ ...proposed, id: uid() }, true);
+                          if (proposalMode === "patch") {
+                            const next = applyChanges(board, proposed, acceptedKeys);
+                            if (!parseWorkspaceBoard(next, WIDGET_IDS, parseBoard)) return setNotice("Selected changes exceed board limits. Select fewer additions.");
+                            commit(next);
+                          } else switchBoard({ ...proposed, id: uid() }, true);
                           setProposed(null);
                           setNotice(
-                            "Proposal accepted as a new board. Your previous board is saved.",
+                            proposalMode === "patch" ? "Selected agent changes applied. Undo restores the previous board." : "Proposal accepted as a new board. Your previous board is saved.",
                           );
                         }}
                       >
-                        Accept board
+                        {proposalMode === "patch" ? `Apply ${acceptedKeys.length} ${acceptedKeys.length === 1 ? "change" : "changes"}` : "Accept board"}
                       </button>
                     </div>
                   </section>
                 )}
                 <section className="studio-manifest">
+                  <p className="studio-subtle">{agentAvailable ? "Browser agent tools available · changes require your approval" : "No compatible browser agent detected. Use a guided starter or export the manifest."}</p>
                   <span className="eyebrow">INSPECTABLE MANIFEST</span>
                   <pre>
                     {JSON.stringify(
@@ -1733,6 +1884,25 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 </section>
               </div>
             )}
+            {panel === "help" && <div className="studio-panel-scroll studio-guide">
+              <span className="eyebrow">QUESTION → EVIDENCE → REVIEW</span>
+              <h3>Build a workspace that can change your mind.</h3>
+              <ol>
+                <li><strong>Write your question.</strong><p>Add a thesis / note. State what you believe and what would invalidate it.</p><button disabled={!editable} onClick={() => openEditor(makeBlock("note"), true)}>Add a thesis</button></li>
+                <li><strong>Bring the evidence.</strong><p>Pick a metric or chart. Linked instruments follow the board asset; pin one to compare another asset.</p><button disabled={!editable} onClick={() => setPanel("library")}>Explore widgets</button></li>
+                <li><strong>Make the condition explicit.</strong><p>Add a condition and connect it to your thesis with “watches”. A matching condition highlights that thesis for review.</p><button disabled={!editable} onClick={() => openEditor(makeBlock("rule"), true)}>Add a condition</button></li>
+                <li><strong>Review, don’t blindly accept.</strong><p>A compatible agent can propose changes. Inspect the before/after, choose individual changes, and apply them together. Undo is always available in this session.</p><button onClick={() => setPanel("agent")}>Open collaboration</button></li>
+              </ol>
+              <h3>Canvas shortcuts</h3><p>Arrow keys on a widget header move it. Shift + Arrow moves by 1px. Arrow keys on the resize handle change its size. ⌘/Ctrl + Z undoes. Hold Space on the canvas and drag to pan.</p>
+              <p>Boards are saved in this browser, not a cloud account. Export regularly. Conditions run only while the page is open; this workspace never executes trades.</p>
+            </div>}
+            {panel === "health" && <div className="studio-panel-scroll">
+              <h3>{market.loading ? "Connecting to CoinMarketCap…" : market.error ? "Refresh failed" : market.data?.health === "partial" ? "Some feeds need attention" : "Market data status"}</h3>
+              <p className="studio-subtle">Each feed reports separately. A fresh response does not guarantee a fresh quote. Historical charts show their observation dates.</p>
+              {market.error && <p role="alert">{market.error}</p>}
+              <button onClick={market.retry} disabled={market.refreshing || market.loading}><RefreshCw />Retry data feeds</button>
+              {Object.entries(market.data?.feeds ?? {}).map(([name, feed]) => <div className="studio-feed" key={name}><strong>{name}</strong><span className={feed.status === "error" ? "is-negative" : ""}>{feed.status === "error" ? "Unavailable" : "Received"}</span><small>{feed.message ?? (feed.updatedAt ? new Date(feed.updatedAt).toLocaleString() : "No update timestamp")}</small></div>)}
+            </div>}
           </aside>
         )}
       </div>
@@ -1751,13 +1921,12 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         </div>
       )}
       {shareUrl && (
-        <div className="studio-modal-backdrop" onClick={() => setShareUrl("")}>
-          <section
+          <dialog
+            ref={shareDialog}
             className="studio-share"
-            role="dialog"
             aria-modal="true"
             aria-labelledby="share-title"
-            onClick={(e) => e.stopPropagation()}
+            onCancel={() => setShareUrl("")}
           >
             <button
               className="studio-share-close"
@@ -1791,6 +1960,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               onClick={async () => {
                 try {
                   await navigator.clipboard.writeText(shareUrl);
+                  setCopied(true);
                   setNotice("Snapshot link copied.");
                 } catch {
                   setNotice(
@@ -1800,10 +1970,9 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               }}
             >
               <Copy />
-              Copy link
+              {copied ? "Copied" : "Copy link"}
             </button>
-          </section>
-        </div>
+          </dialog>
       )}
       <input
         ref={importRef}

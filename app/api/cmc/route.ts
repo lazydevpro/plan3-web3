@@ -3,11 +3,13 @@ import { getCmcOverview } from "@/lib/cmc";
 
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
-    const data = await getCmcOverview();
+    const scope = new URL(request.url).searchParams.get("scope") === "core" ? "core" : "all";
+    const data = await getCmcOverview(scope);
     return NextResponse.json(data, {
-      headers: { "Cache-Control": "public, s-maxage=45, stale-while-revalidate=120" },
+      status: data.health === "unavailable" ? 503 : 200,
+      headers: { "Cache-Control": data.health === "healthy" ? "private, max-age=30" : "no-store" },
     });
   } catch (error) {
     return NextResponse.json(

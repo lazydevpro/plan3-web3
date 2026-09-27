@@ -1,4 +1,5 @@
 .studio {
+  --studio-readable: var(--muted-foreground);
   height: 100dvh;
   display: flex;
   flex-direction: column;
@@ -6,6 +7,42 @@
   color: #f2ede2;
   font-size: 13px;
   overflow: hidden;
+}
+.studio-build-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
+.studio-build-tools > span { color: var(--muted-foreground); font-size: 12px; margin-right: auto; }
+.studio-build-tools button[aria-pressed="true"] { color: var(--foreground); background: var(--copper-soft); }
+.studio .studio-change { flex-direction: row; align-items: flex-start; gap: 12px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.studio-change-list { display: grid; gap: 8px; }
+.studio-change input { margin-top: 3px; accent-color: var(--copper); }
+.studio-change > span { display: grid; gap: 8px; min-width: 0; }
+.studio-change small { line-height: 1.6; overflow-wrap: anywhere; }
+.studio-change pre { max-height: 220px; overflow: auto; font-size: 11px; }
+.studio-change details summary { cursor: pointer; }
+.studio-feed { display: grid; grid-template-columns: 1fr auto; gap: 8px; padding: 12px 0; border-bottom: 1px solid var(--border); }
+.studio-feed small { grid-column: 1 / -1; color: var(--muted-foreground); overflow-wrap: anywhere; }
+.studio-guide p { color: var(--muted-foreground); font-size: 13px; line-height: 1.7; }
+.studio-guide ol { padding-left: 20px; display: grid; gap: 24px; }
+.studio-guide li p { margin: 8px 0; }
+.instrument-evidence { margin-top: 16px; padding: 12px; border: 1px solid var(--border); border-radius: 6px; }
+.instrument-evidence p { margin: 8px 0 0; font-size: 12px; line-height: 1.6; }
+.instrument-evidence.needs-review { border-color: var(--copper); background: var(--surface-raised); }
+.instrument-loading { display: flex; flex-direction: column; gap: 16px; color: var(--muted-foreground); }
+.instrument-loading i { display: block; background: var(--muted); height: 24px; border-radius: 4px; }
+.instrument-loading i:nth-child(2) { height: 56px; width: 70%; }
+.studio .instrument-source, .studio .instrument-formula, .studio .instrument-meta, .studio .instrument-table-head, .studio .chart-dates { font-size: 12px; color: var(--muted-foreground); }
+.studio .instrument-row { font-size: 12px; }
+.studio .instrument-row > * { min-width: 80px; }
+.studio .instrument-table { overflow-x: auto; }
+.studio .instrument-row > :first-child { position: sticky; left: 0; background: var(--surface-soft); }
+@media (prefers-reduced-motion: no-preference) { .studio button { transition: background-color 100ms ease-out, border-color 100ms ease-out; } }
+@media (pointer: coarse) {
+  .studio button, .studio .studio-block-header button, .studio .studio-rail button { min-width: 40px; min-height: 40px; }
+  .studio .studio-resize { width: 40px; height: 40px; }
+}
+@media (max-width: 680px) {
+  .studio-build-tools > span { display: none; }
+  .studio-build-tools { padding: 4px 8px; }
+  .studio .studio-share { padding: 24px; }
 }
 .studio button {
   display: inline-flex;
@@ -54,6 +91,7 @@
   scrollbar-color: #504334 #191714;
   scrollbar-width: thin;
 }
+.studio-viewport { isolation: isolate; }
 .studio input:not([type="checkbox"]),
 .studio select,
 .studio textarea {
@@ -205,6 +243,7 @@
   padding-left: 8px;
 }
 .studio-body {
+  position: relative;
   display: flex;
   min-height: 0;
   flex: 1;
@@ -761,7 +800,14 @@
   display: flex;
   flex-direction: column;
   gap: 18px;
+  margin: auto;
+  color: var(--foreground);
+  width: min(520px, calc(100vw - 32px));
+  max-height: calc(100dvh - 48px);
+  overflow: auto;
 }
+.studio-share:not([open]) { display: none; }
+.studio-share::backdrop { background: rgb(0 0 0 / 65%); }
 .studio-share h2 {
   font-size: 25px;
   letter-spacing: -0.04em;
@@ -1006,7 +1052,7 @@
   .studio-panel {
     position: absolute;
     right: 0;
-    top: 108px;
+    top: 0;
     bottom: 0;
     z-index: 20;
     box-shadow: -12px 0 30px #0005;
@@ -1017,6 +1063,8 @@
     gap: 8px;
     padding: 0 10px;
   }
+  .studio button, .studio .studio-block-header button { min-width: 40px; min-height: 40px; }
+  .studio .studio-resize { width: 40px; height: 40px; }
   .studio-brand strong {
     font-size: 13px;
   }
@@ -1041,7 +1089,13 @@
   .studio-toolbar {
     gap: 6px;
     padding: 0 8px;
+    flex-wrap: wrap;
+    height: auto;
+    min-height: 88px;
+    flex-shrink: 0;
   }
+  .studio-toolbar-end { width: 100%; justify-content: flex-end; margin-left: 0; }
+  .studio .studio-data-state { display: inline-flex; }
   .studio-context {
     font-size: 0 !important;
   }

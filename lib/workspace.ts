@@ -71,6 +71,7 @@ export type Block = {
   id: string;
   kind: BlockKind;
   title: string;
+  locked?: boolean;
   rect: WidgetRect;
   config: {
     asset: string;
@@ -83,6 +84,9 @@ export type Block = {
     text: string;
     url: string;
     preset?: WidgetId;
+    columns?: Metric[];
+    minimum?: number | null;
+    historyDays?: 7 | 14;
   };
 };
 export type Connection = {
@@ -246,6 +250,7 @@ export function evaluateRule(
   failed = false,
 ): "met" | "not met" | "unknown" {
   const age = data ? now - Date.parse(data.retrievedAt) : NaN;
+  if (data?.health === "unavailable") return "unknown";
   if (failed || !Number.isFinite(age) || age > 180_000 || age < -60_000)
     return "unknown";
   const asset = assetsFrom(data).find(
@@ -310,6 +315,7 @@ export function parseWorkspaceBoard(
       ids.has(w.id) ||
       !KINDS.includes(w.kind) ||
       typeof w.title !== "string" ||
+      (w.locked !== undefined && typeof w.locked !== "boolean") ||
       !w.rect ||
       !w.config
     )
@@ -344,6 +350,9 @@ export function parseWorkspaceBoard(
       typeof c.url !== "string" ||
       c.url.length > 2000 ||
       (w.kind === "preset" && !presetIds.includes(c.preset ?? ""))
+      || (c.columns !== undefined && (!Array.isArray(c.columns) || !c.columns.length || c.columns.length > 6 || !c.columns.every(m => Object.hasOwn(METRICS, m))))
+      || (c.minimum !== undefined && c.minimum !== null && (typeof c.minimum !== "number" || !Number.isFinite(c.minimum)))
+      || (c.historyDays !== undefined && c.historyDays !== 7 && c.historyDays !== 14)
     )
       return null;
   }
@@ -375,6 +384,7 @@ export function parseWorkspaceBoard(
       id: w.id,
       kind: w.kind,
       title: w.title.slice(0, 100),
+      ...(w.locked !== undefined ? { locked: w.locked } : {}),
       rect: { x: w.rect.x, y: w.rect.y, w: w.rect.w, h: w.rect.h },
       config: {
         asset: w.config.asset,
@@ -386,6 +396,9 @@ export function parseWorkspaceBoard(
         threshold: w.config.threshold,
         text: w.config.text,
         url: w.config.url,
+        ...(w.config.columns ? { columns: [...new Set(w.config.columns)] } : {}),
+        ...(w.config.minimum !== undefined ? { minimum: w.config.minimum } : {}),
+        ...(w.config.historyDays ? { historyDays: w.config.historyDays } : {}),
         ...(w.kind === "preset" ? { preset: w.config.preset } : {}),
       },
     })),

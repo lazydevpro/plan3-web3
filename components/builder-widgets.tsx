@@ -2,6 +2,7 @@
 
 import { ExternalLink, Link2, Pin, ShieldAlert } from "lucide-react";
 import type { CmcOverview } from "@/lib/cmc";
+import { useClock } from "@/hooks/use-clock";
 import {
   assetsFrom,
   evaluateRule,
@@ -18,12 +19,15 @@ export function BuilderWidget({
   board,
   data,
   failed = false,
+  loading = false,
 }: {
   block: Block;
   board: WorkspaceBoard;
   data: CmcOverview | null;
   failed?: boolean;
+  loading?: boolean;
 }) {
+  const now = useClock();
   const c = block.config;
   const symbol = c.asset === "$asset" ? board.asset : c.asset;
   const assets = assetsFrom(data);
@@ -35,6 +39,7 @@ export function BuilderWidget({
       : assets
   )
     .filter((a) => block.kind === "table" || metricValue(a, c.metric) != null)
+    .filter(a => c.minimum == null || (metricValue(a, c.metric) != null && metricValue(a, c.metric)! >= c.minimum))
     .sort((a, b) => {
       const av = metricValue(a, c.metric),
         bv = metricValue(b, c.metric);
@@ -49,7 +54,7 @@ export function BuilderWidget({
   const history =
     data?.history
       .find((s) => s.symbol === symbol)
-      ?.points.filter((p) => Number.isFinite(p.price)) ?? [];
+      ?.points.filter((p) => Number.isFinite(p.price)).slice(-(c.historyDays ?? 14)) ?? [];
   const prices = history.map((p) => p.price);
   const low = prices.length ? Math.min(...prices) : 0;
   const high = prices.length ? Math.max(...prices) : 0;
@@ -59,13 +64,21 @@ export function BuilderWidget({
         `${i ? "L" : "M"}${20 + (i / Math.max(1, prices.length - 1)) * 560},${145 - ((p - low) / (high - low || 1)) * 125}`,
     )
     .join(" ");
-  const state = evaluateRule(block, board, data, Date.now(), failed);
+  const state = evaluateRule(block, board, data, now, failed);
   const stale =
     failed ||
+    data?.health === "unavailable" ||
+    (["metric", "rule", "chart"].includes(block.kind) && (!asset || !asset.lastUpdated || !Number.isFinite(Date.parse(asset.lastUpdated)) || now - Date.parse(asset.lastUpdated) > 600000)) ||
+    (block.kind === "chart" && (!history.length || data?.feeds?.history?.status === "error")) ||
+    (["table", "ranking"].includes(block.kind) && !rows.length) ||
     !data ||
     !Number.isFinite(Date.parse(data.retrievedAt)) ||
-    Date.now() - Date.parse(data.retrievedAt) > 180000;
+    now - Date.parse(data.retrievedAt) > 180000;
   const bound = !["note", "source", "table", "ranking"].includes(block.kind);
+  const columns = block.kind === "table" ? c.columns ?? [...new Set([c.metric, "price" as const])] : [c.metric];
+  const watched = board.connections.filter(link => link.to === block.id && link.relation === "watches").map(link => board.blocks.find(b => b.id === link.from)).filter((b): b is Block => b?.kind === "rule");
+  const triggered = watched.filter(rule => evaluateRule(rule, board, data, now, failed) === "met");
+  if (loading && !["note", "source"].includes(block.kind)) return <div className="instrument instrument-loading" role="status" aria-label="Loading market data"><span>Loading CoinMarketCap data…</span><i /><i /><i /><small>Your board remains editable.</small></div>;
   return (
     <div className={`instrument instrument-${block.kind}`}>
       <div className="instrument-meta">
@@ -156,8 +169,7 @@ export function BuilderWidget({
         <div className="instrument-table">
           <div className="instrument-row instrument-table-head">
             <span>Asset</span>
-            <span>{METRICS[c.metric].label}</span>
-            {block.kind === "table" && <span>Price</span>}
+            {columns.map(metric => <span key={metric}>{METRICS[metric].label}</span>)}
           </div>
           {rows.map((a, i) => (
             <div className="instrument-row" key={a.id}>
@@ -165,20 +177,17 @@ export function BuilderWidget({
                 <small>{String(i + 1).padStart(2, "0")}</small>
                 {a.symbol}
               </strong>
-              <span
+              {columns.map(metric => <span key={metric}
                 className={
-                  METRICS[c.metric].unit === "%"
-                    ? (metricValue(a, c.metric) ?? 0) >= 0
+                  METRICS[metric].unit === "%"
+                    ? (metricValue(a, metric) ?? 0) >= 0
                       ? "is-positive"
                       : "is-negative"
                     : ""
                 }
               >
-                {formatMetric(metricValue(a, c.metric), c.metric)}
-              </span>
-              {block.kind === "table" && (
-                <span>{formatMetric(a.price, "price")}</span>
-              )}
+                {formatMetric(metricValue(a, metric), metric)}
+              </span>)}
             </div>
           ))}
           {!rows.length && (
@@ -263,6 +272,7 @@ export function BuilderWidget({
           </span>
         </footer>
       )}
+      {watched.length > 0 && <div className={`instrument-evidence ${triggered.length ? "needs-review" : ""}`} role="status"><strong>{triggered.length ? "Thesis needs review" : "Linked conditions"}</strong><p>{triggered.length ? triggered.map(rule => rule.title).join(", ") + " — condition met. Revisit this thesis; this is not a trade instruction." : watched.map(rule => `${rule.title}: ${evaluateRule(rule, board, data, now, failed)}`).join(" · ")}</p></div>}
     </div>
   );
 }

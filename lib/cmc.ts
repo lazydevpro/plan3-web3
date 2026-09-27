@@ -93,6 +93,8 @@ export type CmcDexSnapshot = {
 };
 
 export type CmcOverview = {
+  health?: "healthy" | "partial" | "unavailable";
+  feeds?: Record<string, { status: "ok" | "error"; updatedAt: string | null; message?: string }>;
   mode: "full" | "public";
   retrievedAt: string;
   assets: CmcAssetQuote[];
@@ -205,6 +207,7 @@ async function requestCmc(path: string, apiKey?: string, revalidate = 60): Promi
     : "https://pro-api.coinmarketcap.com/public-api";
   const promise = (async () => {
     const response = await fetch(`${base}${path}`, {
+      signal: AbortSignal.timeout(12000),
       headers: apiKey ? { Accept: "application/json", "X-CMC_PRO_API_KEY": apiKey } : { Accept: "application/json" },
       next: { revalidate },
     });
@@ -595,7 +598,7 @@ function parseRwaDetail(quotePayload: Record<string, unknown>, issuerPayload: Re
   };
 }
 
-export async function getCmcOverview(): Promise<CmcOverview> {
+export async function getCmcOverview(scope: "core" | "all" = "all"): Promise<CmcOverview> {
   const apiKey = process.env.CMC_PRO_API_KEY?.trim();
   const errors: string[] = [];
   const jupAddress = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
@@ -630,18 +633,27 @@ export async function getCmcOverview(): Promise<CmcOverview> {
     rwaGold: ["/v5/real-world-assets/quotes/latest?rwa_id=1&convert=USD", 300],
     rwaIssuers: ["/v5/real-world-assets/issuers/list?limit=8", 3600],
   });
-  const entries = Object.entries(endpoints);
+  const entries = Object.entries(endpoints).filter(([name]) => scope === "all" || ["assets", "listings", "history"].includes(name));
   const settled = await Promise.allSettled(entries.map(([, [path, revalidate]]) => requestCmc(path, apiKey, revalidate)));
   const results: Record<string, Record<string, unknown>> = {};
+  const feeds: NonNullable<CmcOverview["feeds"]> = {};
   entries.forEach(([name], index) => {
     const result = settled[index];
-    if (result.status === "fulfilled") results[name] = result.value;
-    else errors.push(`${name}: ${result.reason instanceof Error ? result.reason.message : "unavailable"}`);
+    if (result.status === "fulfilled") {
+      results[name] = result.value;
+      feeds[name] = { status: "ok", updatedAt: stringOrNull(record(result.value.status).timestamp) ?? new Date().toISOString() };
+    } else {
+      const message = result.reason instanceof Error ? result.reason.message : "Unavailable";
+      errors.push(`${name}: ${message}`);
+      feeds[name] = { status: "error", updatedAt: null, message };
+    }
   });
   const emptyLiquidations: CmcOverview["liquidations"] = { total1h: null, total4h: null, total24h: null, longs24h: null, shorts24h: null, updatedAt: null, available: false };
   const emptyDerivatives: CmcOverview["derivatives"] = { fundingRate: null, openInterest: null, venue: null, pair: null, updatedAt: null, available: false };
   const dexToken = results.dexToken ? parseDexToken(results.dexToken) : { token: null, pools: [] };
   return {
+    health: !Object.keys(results).length ? "unavailable" : errors.length ? "partial" : "healthy",
+    feeds,
     mode: apiKey ? "full" : "public",
     retrievedAt: new Date().toISOString(),
     assets: results.assets ? parseAssets(results.assets) : [],
