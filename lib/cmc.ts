@@ -167,6 +167,7 @@ export type CmcOverview = {
 const ASSET_IDS = "1,1027,5426";
 
 function numberOrNull(value: unknown): number | null {
+  if (value == null || typeof value === "boolean" || (typeof value === "string" && !value.trim())) return null;
   const number = typeof value === "number" ? value : Number(value);
   return Number.isFinite(number) ? number : null;
 }

@@ -1,0 +1,575 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Plan3 — Competitive landscape</title>
+    <style>
+      :root {
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: #151411;
+        color: #f2ede2;
+        font:
+          15px/1.7 system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1180px;
+        margin: auto;
+        padding: 64px 28px 100px;
+      }
+      a {
+        color: #d89b6b;
+        text-underline-offset: 4px;
+      }
+      header {
+        border-bottom: 1px solid #45382a;
+        padding-bottom: 36px;
+      }
+      .eyebrow {
+        font: 11px monospace;
+        letter-spacing: 0.16em;
+        color: #c87a43;
+        text-transform: uppercase;
+      }
+      h1 {
+        font-size: clamp(38px, 6vw, 72px);
+        font-weight: 500;
+        letter-spacing: -0.055em;
+        line-height: 1.05;
+        max-width: 850px;
+        margin: 24px 0;
+      }
+      h2 {
+        font-size: 26px;
+        letter-spacing: -0.03em;
+        font-weight: 500;
+        margin-top: 48px;
+      }
+      p {
+        max-width: 850px;
+        color: #bdb3a4;
+      }
+      .lead {
+        font-size: 20px;
+        max-width: 830px;
+      }
+      nav {
+        display: flex;
+        gap: 24px;
+        flex-wrap: wrap;
+        margin-top: 26px;
+        font-size: 13px;
+      }
+      .takeaway {
+        border-left: 3px solid #c87a43;
+        padding: 8px 24px;
+        margin: 36px 0;
+        font-size: 22px;
+        max-width: 900px;
+      }
+      .takeaway small {
+        display: block;
+        color: #aaa294;
+        font-size: 13px;
+        margin-top: 10px;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+        min-width: 740px;
+      }
+      th {
+        text-align: left;
+        font: 10px monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: #aa957c;
+        padding: 14px;
+        border-bottom: 1px solid #796047;
+      }
+      td {
+        padding: 18px 14px;
+        border-bottom: 1px solid #332d25;
+        vertical-align: top;
+        color: #bbb2a4;
+      }
+      td:first-child {
+        color: #f2ede2;
+        min-width: 130px;
+      }
+      td:first-child small {
+        display: block;
+        color: #82786a;
+        font-size: 10px;
+        margin-top: 5px;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 32px;
+      }
+      .grid section {
+        border-top: 1px solid #57432f;
+        padding-top: 14px;
+      }
+      h3 {
+        font-size: 17px;
+        font-weight: 550;
+      }
+      li {
+        margin: 10px 0;
+        color: #bdb3a4;
+      }
+      .status {
+        color: #42b59a;
+        font: 10px monospace;
+      }
+      .later {
+        color: #c8ae62;
+      }
+      .sources {
+        font-size: 13px;
+        columns: 2;
+        column-gap: 40px;
+      }
+      .sources li {
+        break-inside: avoid;
+      }
+      .footer {
+        margin-top: 60px;
+        border-top: 1px solid #45382a;
+        padding-top: 24px;
+        font-size: 12px;
+        color: #938776;
+      }
+      @media (max-width: 680px) {
+        main {
+          padding: 35px 20px;
+        }
+        .grid {
+          grid-template-columns: 1fr;
+        }
+        .sources {
+          columns: 1;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div class="eyebrow">PLAN³ / product strategy / 28 September 2026</div>
+        <h1>A better builder starts with a sharper job.</h1>
+        <p class="lead">
+          The opportunity is not another screen full of crypto data. It is a
+          research workspace that preserves how the evidence connects to a
+          decision—and what would change it.
+        </p>
+        <nav>
+          <a href="#landscape">The landscape ↗</a
+          ><a href="#shipped">What we changed ↗</a
+          ><a href="#next">What comes next ↗</a><a href="/">Open Plan3 ↗</a>
+        </nav>
+      </header>
+      <div class="takeaway">
+        “AI + customizable Web3 dashboards” is already a category.<small
+          >Alphaday, OpenBB and Observable make broad novelty claims untenable.
+          We need to win a specific research workflow.</small
+        >
+      </div>
+      <section id="landscape">
+        <div class="eyebrow">01 / Competitive map</div>
+        <h2>Learn from the leaders. Be honest about the gaps.</h2>
+        <p>
+          Official documentation reviewed, not a paid-account feature benchmark.
+          A feature absent from a page is not proven absent from a product.
+          Source breadth, professional charting and hosted collaboration remain
+          weaknesses for Plan3.
+        </p>
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                <th>Product / role</th>
+                <th>Established strength</th>
+                <th>Our response</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <a href="https://alphaday.com/">Alphaday</a
+                  ><small>Direct · crypto workspace</small>
+                </td>
+                <td>
+                  Custom crypto boards, ecosystem feeds, and current API/MCP
+                  positioning.
+                </td>
+                <td>
+                  Do not compete on aggregation breadth alone. Make instruments
+                  and research logic editable.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://docs.openbb.co/workspace">OpenBB</a
+                  ><small>Direct / adjacent · financial research</small>
+                </td>
+                <td>
+                  Linked widget parameters, dashboard-aware agents, AI-generated
+                  artifacts and workflow Apps.
+                </td>
+                <td>
+                  Shared context is table stakes. Focus the experience on market
+                  theses and reviewable changes.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a
+                    href="https://www.tradingview.com/support/solutions/43000629992-how-to-sync-the-charts-of-my-layout/"
+                    >TradingView</a
+                  ><small>Adjacent · chart-led analysis</small>
+                </td>
+                <td>
+                  Deep charts and selective synchronization across layouts.
+                </td>
+                <td>
+                  Make linked versus pinned context obvious; avoid attempting
+                  chart-engine parity.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://www.koyfin.com/help/mydashboards-myd/"
+                    >Koyfin</a
+                  ><small>Adjacent · financial dashboards</small>
+                </td>
+                <td>
+                  Templates, configurable watchlists and color-linked widgets.
+                </td>
+                <td>
+                  Reusable playbooks should shorten setup. More fixed cards are
+                  not enough.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://dune.com/agents">Dune</a
+                  ><small>Direct / adjacent · onchain analytics</small>
+                </td>
+                <td>
+                  Query-driven dashboards, configurable visualizations, MCP/CLI
+                  for agents.
+                </td>
+                <td>
+                  Start with accessible known-field composition; acknowledge our
+                  onchain-query gap.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a
+                    href="https://grafana.com/docs/grafana/latest/fundamentals/dashboards-overview/"
+                    >Grafana</a
+                  ><small>Builder benchmark</small>
+                </td>
+                <td>
+                  Clear separation of source, query, transformation and
+                  visualization.
+                </td>
+                <td>
+                  Adopt the architecture at a smaller market-specific learning
+                  cost.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://old.observablehq.com/documentation/canvases/"
+                    >Observable</a
+                  ><small>Direct architectural comparator</small>
+                </td>
+                <td>
+                  Reactive collaborative data canvas and inspectable
+                  AI-generated nodes.
+                </td>
+                <td>
+                  The canvas is not the differentiator. Preserve decision
+                  context and approval.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://academy.santiment.net/sanbase/">Santiment</a
+                  ><small>Adjacent · crypto signals</small>
+                </td>
+                <td>Metrics, watchlists, social insights and alerts.</td>
+                <td>
+                  Do not equate an in-page condition with reliable hosted
+                  monitoring.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://messari.io/copilot">Messari</a
+                  ><small>Adjacent · research intelligence</small>
+                </td>
+                <td>
+                  Research assistant surfaces, reports, monitoring and
+                  screening.
+                </td>
+                <td>
+                  A real cited-research agent remains essential future work.
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <a href="https://www.get-zero.xyz/">ZERO</a
+                  ><small>Adjacent · trader behavior</small>
+                </td>
+                <td>
+                  Advertises paper/shadow trading, behavioral feedback and
+                  journaling.
+                </td>
+                <td>
+                  Different core job. Keep research composition ahead of trade
+                  execution.
+                </td>
+              </tr>
+              <tr>
+                <td>Sheets + tabs + notes<small>Everyday substitute</small></td>
+                <td>Familiar, flexible, inexpensive and already adopted.</td>
+                <td>
+                  Beat setup time, updating friction and lost reasoning—not just
+                  visual polish.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section>
+        <h2>Two signals worth remembering</h2>
+        <div class="grid">
+          <section>
+            <h3>Context confusion is a usability risk.</h3>
+            <p>
+              A
+              <a
+                href="https://www.reddit.com/r/TradingView/comments/1r8oy2j/chart_layout_settings_how_to_stop_it_from/"
+                >2026 Reddit discussion</a
+              >
+              describes confusion around linked chart settings. One anecdote
+              cannot establish broad demand or a current bug. It does support
+              making binding state visible and easy to reverse.
+            </p>
+          </section>
+          <section>
+            <h3>Standalone terminals need a durable job.</h3>
+            <p>
+              <a
+                href="https://blog.kraken.com/product/cryptowatch-to-sunset-kraken-pro-to-integrate-cryptowatch-features"
+                >Kraken announced Cryptowatch’s sunset in 2023</a
+              >
+              and feature integration into Kraken Pro. The documented fact is
+              consolidation, not a proven design failure. Our inference:
+              aggregation alone is a vulnerable position.
+            </p>
+          </section>
+        </div>
+      </section>
+      <section id="shipped">
+        <div class="eyebrow">02 / Research translated into code</div>
+        <h2>From fixed cards to editable instruments.</h2>
+        <div class="grid">
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>Compose the data and the view</h3>
+            <p>
+              Seven custom building blocks: metric, history chart, watchlist,
+              ranking, condition, thesis/note and reference link. Select known
+              fields or inspectable derived ratios. Preview the actual widget
+              before adding it.
+            </p>
+          </section>
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>Link context without surprises</h3>
+            <p>
+              Custom instruments can follow the board asset or stay pinned.
+              Repeat instances have independent settings. Existing specialist
+              CMC presets keep their explicit scope.
+            </p>
+          </section>
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>Keep the reasoning on the canvas</h3>
+            <p>
+              Connect evidence with supports, contradicts, watches and
+              derived-from assertions. Conditions show the formula, threshold,
+              current result and unknown state when data is unavailable.
+            </p>
+          </section>
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>Make iteration safe</h3>
+            <p>
+              Multiple local boards, templates, duplication, undo/redo, precise
+              geometry, free dragging, resizing, pan and zoom. Existing board
+              content is migrated instead of deleted.
+            </p>
+          </section>
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>A shared human–agent manifest</h3>
+            <p>
+              Compatible browser agents can read the same structured board and
+              stage a proposal. A human must accept it. The included starter is
+              clearly labelled rule-based, not an LLM.
+            </p>
+          </section>
+          <section>
+            <span class="status">IMPLEMENTED</span>
+            <h3>Share the workflow</h3>
+            <p>
+              Export/import validated JSON, send a read-only configuration
+              snapshot, and remix it into a local board. The site remains
+              private; market values refresh on opening.
+            </p>
+          </section>
+        </div>
+      </section>
+      <section id="next">
+        <div class="eyebrow">03 / The next product bets</div>
+        <h2>The hard work still ahead.</h2>
+        <ol>
+          <li>
+            <strong>Composable connectors:</strong> schemas, entity/timeframe
+            parameters, units, provenance, freshness and credit budgets. Broaden
+            configurable CMC coverage before adding another source.
+          </li>
+          <li>
+            <strong>A model-backed research agent:</strong> cited retrieval,
+            visible per-widget change review, cost estimates, atomic apply and
+            rollback. Test untrusted-source injection.
+          </li>
+          <li>
+            <strong>Reusable research playbooks:</strong> parameters and
+            decision journals, with timestamp-correct outcome tracking. No
+            predictive-performance claims without evidence.
+          </li>
+          <li>
+            <strong>Hosted monitoring and collaboration:</strong> authenticated
+            persistence, scheduled checks, opt-in delivery, revisions and
+            concurrent edits.
+          </li>
+          <li>
+            <strong>A curated template network:</strong> attribution,
+            requirements and remix tracking. Potential future defensibility, not
+            an existing moat.
+          </li>
+        </ol>
+      </section>
+      <section>
+        <h2>Earn “best” with observed use.</h2>
+        <p>
+          Test with 5–8 target researchers against their own current workflow:
+          reproduce a board, compare BTC/SOL, pin a widget, express
+          invalidation, share/remix, and recover a mistake.
+        </p>
+        <p>
+          <strong>Targets—not achieved claims:</strong> a useful custom board in
+          under five minutes; at least 80% unassisted task completion; no
+          binding confusion or lost edits; three workflows reused weekly.
+          Measure second-session return, accepted versus rolled-back agent
+          proposals, source errors and credits per active board.
+        </p>
+        <div class="takeaway">
+          Build a living market thesis.<small
+            >Compose your data, connect your evidence, and let an agent propose
+            the next change—on a board you control.</small
+          >
+        </div>
+      </section>
+      <section>
+        <h2>Further primary references</h2>
+        <ul class="sources">
+          <li>
+            <a
+              href="https://docs.openbb.co/workspace/analysts/widgets/ai-generated-widgets"
+              >OpenBB AI-generated widgets</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://docs.openbb.co/workspace/developers/ai-features/interact-with-dashboard"
+              >OpenBB dashboard context</a
+            >
+          </li>
+          <li>
+            <a href="https://docs.openbb.co/workspace/analysts/apps"
+              >OpenBB workflow Apps</a
+            >
+          </li>
+          <li>
+            <a href="https://old.observablehq.com/documentation/canvases/ai"
+              >Observable AI behavior</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://grafana.com/docs/grafana/latest/visualizations/panels-visualizations/query-transform-data/transform-data/"
+              >Grafana transformations</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://grafana.com/docs/learning-paths/interactive-dashboards/understanding-variables/"
+              >Grafana variables</a
+            >
+          </li>
+          <li>
+            <a href="https://dune.com/blog/creating-visualizations-charts"
+              >Dune visualization configuration</a
+            >
+          </li>
+          <li>
+            <a href="https://dune.com/blog/creating-and-managing-dashboards"
+              >Dune dashboard management</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://blog.alphaday.com/p/how-to-build-a-cryptocurrency-dashboard"
+              >Alphaday dashboard guide</a
+            >
+          </li>
+          <li>
+            <a
+              href="https://www.tradingview.com/support/solutions/43000692404-layouts-charts-drawings-indicators-and-their-interaction/"
+              >TradingView layout behavior</a
+            >
+          </li>
+        </ul>
+      </section>
+      <div class="footer">
+        Research scope: public official documentation, product pages and
+        explicitly labelled qualitative anecdotes. Vendor popularity claims are
+        not verified usage. Plan3 has no established moat today. No trades,
+        background alerts, multiplayer or built-in LLM are implied by this
+        release.
+      </div>
+    </main>
+  </body>
+</html>

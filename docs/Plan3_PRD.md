@@ -1,7 +1,7 @@
 # Plan3 Product Requirements Document
 
 **Status:** Draft for hackathon build  
-**Version:** 1.1  
+**Version:** 1.2 — see implementation update at the end for delivered scope and remaining gaps  
 **Date:** September 12, 2026  
 **Product type:** Web application with optional browser extension  
 **Product positioning:** The decision-intelligence workspace for Web3.  
@@ -527,3 +527,12 @@ The MVP is ready when:
 The durable product is a marketplace and operating system for decision boards. Creators publish thesis templates; users remix them with their own assets and sources; agents continuously maintain the underlying evidence. Monetization can combine premium data connectors, higher agent-monitor limits, private collaborative workspaces, and paid creator templates.
 
 The defensible asset is not any individual dashboard. It is the growing library of typed market widgets, agent capabilities, provenance-aware relationships, reusable decision templates, and interaction history showing how humans approve or correct agent work.
+# Implementation update — 28 September 2026
+
+The v2 research builder is implemented. See [competitive research](COMPETITIVE_RESEARCH_2026-09-28.md) for evidence, positioning and the next prioritized work.
+
+Current scope: configurable metric/chart/watchlist/ranking/condition/note/reference blocks; board-linked and pinned assets; inspectable calculations; human-authored evidence relationships; repeated widget instances; multiple local boards; playbooks; undo/redo; pan/zoom; validated JSON import/export; shared snapshots and remix; human-approved WebMCP manifest proposals. Existing CMC preset widgets and legacy board content remain supported.
+
+Explicit boundaries: the built-in guided starter is deterministic, not an LLM. Reference links do not ingest external pages. Rules evaluate only during page refreshes, without notifications or trading. Cloud persistence, multiplayer, persistent revision history, arbitrary connectors and an actual model-backed agent remain future work. See the research report's validation targets before claiming category leadership.
+
+---
