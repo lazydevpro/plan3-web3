@@ -945,23 +945,10 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         </nav>
         <section className="studio-workarea" inert={compactScreen && !!panel}>
           {storageBlocked && <div className="studio-recovery-banner" role="alert"><span>Local saving is paused. Original stored content is protected.</span><button onClick={download}>Export current board</button><button onClick={recoverStorage}>Back up storage & repair saves</button></div>}
-          <div className="studio-canvas-heading">
-            <div>
-              <span className="eyebrow">RESEARCH CANVAS</span>
-              <span>
-                {board.blocks.length} widgets <i> / </i>
-                {board.connections.length} evidence links
-              </span>
-            </div>
-            <span>
-              {listView ? "Reading order · full-size widgets · switch to Canvas view to arrange" : editable
-                ? "Drag the header · resize the corner · Space + drag to pan"
-                : "Observe mode · layout locked"}
-            </span>
-          </div>
-          {editable && !listView && <div className="studio-build-tools">
-            <button aria-pressed={snap} onClick={() => setSnap(!snap)}>{snap ? "Snap · on" : "Snap · off"}</button>
-            <span>Optional 16px guides · free placement by default</span>
+          <div className="studio-canvas-tools" role="group" aria-label="Canvas tools">
+            <span className="studio-canvas-count">{board.blocks.length} widgets · {board.connections.length} links</span>
+            {editable && !listView && <div className="studio-build-tools">
+            <button title="Snap to 16px guides. Off allows free placement." aria-pressed={snap} onClick={() => setSnap(!snap)}>{snap ? "Snap · on" : "Snap · off"}</button>
             {selection.length > 1 && <>
               <strong>{selection.length} selected</strong>
               <button onClick={() => commit(b => { const items = b.blocks.filter(w => selection.includes(w.id) && !w.locked); const x = Math.min(...items.map(w => w.rect.x)); return { ...b, blocks: b.blocks.map(w => items.includes(w) ? { ...w, rect: { ...w.rect, x } } : w) }; })}>Align left</button>
@@ -973,7 +960,9 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               <button onClick={() => commit(b => ({ ...b, blocks: [...b.blocks.filter(w => w.id !== activeBlock.id), ...b.blocks.filter(w => w.id === activeBlock.id)] }))}>Bring to front</button>
               <button onClick={() => commit(b => ({ ...b, blocks: [...b.blocks.filter(w => w.id === activeBlock.id), ...b.blocks.filter(w => w.id !== activeBlock.id)] }))}>Send to back</button>
             </>}
-          </div>}
+            </div>}
+            <button className="studio-canvas-help" onClick={() => setPanel(panel === "help" ? null : "help")} title={listView ? "Reading order · switch to Canvas view to arrange" : editable ? "Drag headers to move · drag corners to resize · Space + drag to pan" : "Observe mode · layout locked"}>Canvas help</button>
+          </div>
           <div
             className={`studio-viewport ${listView ? "studio-list-view" : ""}`}
             tabIndex={0}
