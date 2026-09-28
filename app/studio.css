@@ -1152,3 +1152,28 @@
     max-width: calc(100vw - 65px);
   }
 }
+.exchange-widget { display: flex; flex-direction: column; gap: 12px; padding: 16px; min-width: 0; color: var(--foreground); font-size: .875rem; }
+.exchange-heading, .exchange-session, .exchange-widget footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.exchange-heading strong { font-size: 1.125rem; }
+.exchange-heading span, .exchange-widget small { color: var(--muted-foreground); font-size: .8125rem; }
+.exchange-form-preview { display: grid; gap: 8px; }
+.exchange-form-preview > div { display: grid; grid-template-columns: 1fr auto; gap: 12px; border: 1px solid var(--border); border-radius: 8px; padding: 16px; background: var(--card); }
+.exchange-form-preview strong { grid-row: span 2; font-size: 1.5rem; font-weight: 400; }
+.exchange-form-preview > svg { justify-self: center; width: 18px; color: var(--muted-foreground); }
+.exchange-preview-action { padding: 12px; text-align: center; border: 1px solid var(--border); border-radius: 8px; }
+.exchange-disclosure, .exchange-message p { margin: 0; line-height: 1.55; }
+.studio .exchange-activate { background: var(--primary); color: var(--primary-foreground); min-height: 44px; }
+.exchange-session { font-size: .8125rem; border-bottom: 1px solid var(--border); padding-bottom: 8px; }
+.exchange-session span, .exchange-widget footer a { display: inline-flex; align-items: center; gap: 6px; }
+.exchange-session button, .exchange-message button, .exchange-widget footer a { min-height: 40px; }
+.exchange-message { border: 1px solid var(--border); padding: 12px; border-radius: 8px; }
+.exchange-message button { margin: 8px 8px 0 0; }
+.exchange-live { min-width: 0; min-height: 420px; position: relative; }
+.exchange-jupiter-mount { min-height: 420px; }
+/* Jupiter's official theme API accepts RGB channels, mapped from brand.md. */
+.exchange-widget { --jupiter-plugin-primary: 200, 122, 67; --jupiter-plugin-background: 21, 20, 17; --jupiter-plugin-primaryText: 242, 237, 226; --jupiter-plugin-warning: 200, 174, 98; --jupiter-plugin-interactive: 37, 34, 30; --jupiter-plugin-module: 29, 27, 24; }
+.exchange-loading { display: grid; gap: 16px; padding: 12px; }
+.exchange-loading i { height: 88px; background: var(--muted); border-radius: 8px; }
+.exchange-preview { gap: 8px; }
+.exchange-preview .exchange-form-preview > div { padding: 10px; gap: 4px; }
+.studio-block[data-kind="jupiter"] .studio-block-content, .studio-block[data-kind="lifi"] .studio-block-content { overscroll-behavior: contain; }

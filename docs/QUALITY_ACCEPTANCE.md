@@ -2,7 +2,9 @@
 
 ## Gemini integration follow-up
 
-The scorecard below records the earlier review. A server-side Gemini integration has since been implemented locally with validated widget proposals, selective human approval, source references, cancellation/error handling, and mocked-provider tests. The key is configured and a minimal provider response succeeded, but the full research request returned a provider error. Further payload diagnostics require approval; this integration has not been published. See [Gemini setup](./GEMINI_SETUP.md). This does not establish autonomous research, cloud sync, or background alerts, and does not change the provisional scores below.
+Exchange-widget release note: Gemini code is included but production generation is disabled unless `GEMINI_ENABLED=true` is explicitly configured. The earlier unpublished checkpoint below is historical; full Gemini acceptance remains outstanding.
+
+The scorecard below records the earlier review. A server-side Gemini integration has since been implemented locally with validated widget proposals, selective human approval, source references, cancellation/error handling, and mocked-provider tests. The key is configured and a minimal provider response succeeded. User-approved full-payload diagnostics on 2026-09-28 returned provider high-demand errors (HTTP 503) from Gemini 3.8 Flash and 3.5 Flash; Gemini 2.5 Flash was unavailable to this account (HTTP 404). Full research and browser approval-flow verification remain blocked by provider availability; this integration has not been published. See [Gemini setup](./GEMINI_SETUP.md). This does not establish autonomous research, cloud sync, or background alerts, and does not change the provisional scores below.
 
 ## Verdict
 

@@ -145,6 +145,7 @@ Supported configurable kinds: metric, chart, table, ranking, rule, note, source.
   } catch { throw new AgentError("Gemini did not respond in time or the connection was interrupted. Your board is unchanged; try again.", 504); }
   if (!response.ok) {
     if (response.status === 429) throw new AgentError("Gemini's quota or rate limit was reached. Check Google AI Studio billing and retry later.", 429);
+    if (response.status === 503) throw new AgentError("Gemini is busy or temporarily unavailable. Your board is unchanged. Please try again later.", 503);
     if ([400, 401, 403, 404].includes(response.status)) throw new AgentError("Gemini rejected the request. Check the API key, model access, and billing in Google AI Studio.", 503);
     throw new AgentError("Gemini is temporarily unavailable. Your board is unchanged; try again.");
   }

@@ -61,9 +61,10 @@ test("Gemini uses server header authentication, structured output, and the board
 
 test("Gemini failures are actionable and never leak upstream response bodies", async () => {
   const input = { apiKey: "test-only-secret", model: DEFAULT_GEMINI_MODEL, board: templateBoard(), prompt: "Review current research", data: snapshot };
-  for (const status of [400, 401, 403, 404, 429, 500]) {
+  for (const status of [400, 401, 403, 404, 429, 500, 503]) {
     await assert.rejects(requestGemini({ ...input, fetcher: async () => new Response("private provider body", { status }) }), error => !error.message.includes("private provider body") && error.status >= 400);
   }
+  await assert.rejects(requestGemini({ ...input, fetcher: async () => new Response("private provider body", { status: 503 }) }), error => error.status === 503 && error.message.includes("busy or temporarily unavailable") && error.message.includes("board is unchanged"));
   await assert.rejects(requestGemini({ ...input, fetcher: async () => { throw new Error("private network details"); } }), /did not respond/);
   await assert.rejects(requestGemini({ ...input, fetcher: async () => Response.json({ candidates: [{ finishReason: "MAX_TOKENS" }] }) }), /could not complete/);
   await assert.rejects(requestGemini({ ...input, fetcher: async () => Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: "not json" }] } }] }) }), /invalid proposal data/);

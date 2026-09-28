@@ -95,6 +95,8 @@ const kindLabels: Record<BlockKind, string> = {
   rule: "Condition",
   note: "Thesis / note",
   source: "Source link",
+  jupiter: "Jupiter Swap",
+  lifi: "LI.FI Bridge & Swap",
   preset: "CMC preset",
 };
 
@@ -521,6 +523,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const el = event.target as HTMLElement;
+      if (el.closest("[data-exchange-surface]")) return;
       if (event.key === "Escape") {
         setPanel(null);
         setShareUrl("");
@@ -1176,7 +1179,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             <span>
               {readOnly
                 ? "Read-only snapshot · live market values"
-                : `${saveState} · no trades executed`}
+                : `${saveState} · trades require wallet approval`}
             </span>
             <div hidden={listView}>
               <button
@@ -1268,7 +1271,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 </label>
                 <div className="studio-preset-list">
                   {libraryMode === "instruments" ? <>
-                    {KINDS.filter(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())).map(kind => <div className="studio-preset" key={kind}><div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => openEditor(makeBlock(kind), true)}>Customize</button></div><div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} /></div><p>Independent settings · preview before adding</p></div>)}
+                    {KINDS.filter(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())).map(kind => <div className="studio-preset" key={kind}><div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => openEditor(makeBlock(kind), true)}>Customize</button></div><div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} preview /></div><p>{["jupiter", "lifi"].includes(kind) ? "Official integration · activate on your board" : "Independent settings · preview before adding"}</p></div>)}
                     {!KINDS.some(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())) && <p>No instruments match. Try “chart”, “condition”, or “note”.</p>}
                   </> : <>
                   {!catalog.some(c => `${c.name} ${c.detail}`.toLowerCase().includes(query.toLowerCase())) && <div className="studio-panel-intro"><h3>No matching widgets</h3><p>Try “price”, “volume”, or build your own instrument.</p><button onClick={() => setQuery("")}>Clear search</button></div>}
@@ -1332,12 +1335,14 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         Visualization
                         <select
                           value={draft.kind}
-                          onChange={(e) =>
-                            setDraft({
-                              ...draft,
-                              kind: e.target.value as BlockKind,
-                            })
-                          }
+                          onChange={(e) => {
+                            const kind = e.target.value as BlockKind;
+                            const defaults = makeBlock(kind);
+                            setDraft({ ...draft, kind,
+                              title: draft.title === makeBlock(draft.kind).title ? defaults.title : draft.title,
+                              rect: creating ? { ...draft.rect, w: defaults.rect.w, h: defaults.rect.h } : draft.rect,
+                            });
+                          }}
                         >
                           {KINDS.filter((k) => k !== "preset").map((k) => (
                             <option value={k} key={k}>
@@ -1346,7 +1351,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                           ))}
                         </select>
                       </label>
-                      {!["note", "source", "table", "ranking"].includes(
+                      {!["note", "source", "table", "ranking", "jupiter", "lifi"].includes(
                         draft.kind,
                       ) && (
                         <label>
@@ -1527,9 +1532,10 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     </>
                   )}
                   <section className="studio-preview-section">
+                    {["jupiter", "lifi"].includes(draft.kind) && <p className="studio-subtle">Choose tokens and networks inside the exchange after adding it. Board asset changes never alter a trade. Wallet connection and every signature require your action.</p>}
                     {draft.kind === "chart" && <label>History window<select value={draft.config.historyDays ?? 14} onChange={e => patchConfig({ historyDays: Number(e.target.value) as 7 | 14 })}><option value={7}>Last 7 daily observations</option><option value={14}>Last 14 daily observations</option></select></label>}
                     <span className="eyebrow">
-                      ACTUAL PREVIEW · CURRENT DATA
+                      {["jupiter", "lifi"].includes(draft.kind) ? "LAYOUT PREVIEW · NOT A LIVE QUOTE" : "ACTUAL PREVIEW · CURRENT DATA"}
                     </span>
                     <div className="studio-editor-preview">
                       {draft.kind === "preset" && draft.config.preset ? (
@@ -1541,6 +1547,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                           data={market.data}
                           failed={!!market.error}
                           loading={market.loading}
+                          preview
                         />
                       )}
                     </div>

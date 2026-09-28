@@ -3,6 +3,7 @@
 import { ExternalLink, Link2, Pin, ShieldAlert } from "lucide-react";
 import type { CmcOverview } from "@/lib/cmc";
 import { useClock } from "@/hooks/use-clock";
+import { ExchangeWidget } from "./exchange-widget";
 import {
   assetsFrom,
   evaluateRule,
@@ -20,14 +21,17 @@ export function BuilderWidget({
   data,
   failed = false,
   loading = false,
+  preview = false,
 }: {
   block: Block;
   board: WorkspaceBoard;
   data: CmcOverview | null;
   failed?: boolean;
   loading?: boolean;
+  preview?: boolean;
 }) {
   const now = useClock();
+  if (block.kind === "jupiter" || block.kind === "lifi") return <ExchangeWidget key={block.kind} provider={block.kind} preview={preview} />;
   const c = block.config;
   const symbol = c.asset === "$asset" ? board.asset : c.asset;
   const assets = assetsFrom(data);

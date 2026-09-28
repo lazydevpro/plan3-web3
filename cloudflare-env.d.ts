@@ -5,5 +5,6 @@ declare namespace Cloudflare {
     CMC_PRO_API_KEY?: string;
     GEMINI_API_KEY?: string;
     GEMINI_MODEL?: string;
+    GEMINI_ENABLED?: string;
   }
 }

@@ -6,6 +6,9 @@ import { parseBoard, WIDGET_IDS } from "@/lib/plan3-board";
 import { getCmcOverview } from "@/lib/cmc";
 
 export const dynamic = "force-dynamic";
+// Keep the unverified provider integration off on hosted releases until its
+// separate end-to-end acceptance check succeeds. Local diagnostics stay usable.
+const agentEnabled = () => process.env.NODE_ENV === "development" || process.env.GEMINI_ENABLED === "true";
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
 // Best-effort per-isolate guard, not a distributed billing ceiling. Provider quotas
 // remain the hard cost control; no automatic retries or background model calls.
@@ -21,12 +24,13 @@ async function agentUser(request: Request) {
 
 export async function GET(request: Request) {
   if (!await agentUser(request)) return json({ error: "Sign in to use the research agent." }, 401);
-  return json({ configured: !!process.env.GEMINI_API_KEY?.trim(), model: process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL });
+  return json({ configured: agentEnabled() && !!process.env.GEMINI_API_KEY?.trim(), enabled: agentEnabled(), model: process.env.GEMINI_MODEL?.trim() || DEFAULT_GEMINI_MODEL });
 }
 
 export async function POST(request: Request) {
   const user = await agentUser(request);
   if (!user) return json({ error: "Sign in to use the research agent." }, 401);
+  if (!agentEnabled()) return json({ error: "Gemini research is paused pending provider verification. Your board is unchanged." }, 503);
   const origin = request.headers.get("origin");
   if (request.headers.get("sec-fetch-site") === "cross-site" || (origin && origin !== new URL(request.url).origin)) return json({ error: "Send agent requests from this Plan3 workspace." }, 403);
   const apiKey = process.env.GEMINI_API_KEY?.trim();

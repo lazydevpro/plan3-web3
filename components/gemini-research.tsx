@@ -11,7 +11,7 @@ export function GeminiResearch({ board, disabled, reviewing, onResult }: {
   board: WorkspaceBoard; disabled: boolean; reviewing: boolean;
   onResult: (result: AgentResult, base: WorkspaceBoard) => boolean;
 }) {
-  const [status, setStatus] = useState<{ configured: boolean; model: string } | null>(null);
+  const [status, setStatus] = useState<{ configured: boolean; enabled?: boolean; model: string } | null>(null);
   const [connectionError, setConnectionError] = useState("");
   const [check, setCheck] = useState(0);
   const [prompt, setPrompt] = useState("");
@@ -64,9 +64,9 @@ export function GeminiResearch({ board, disabled, reviewing, onResult }: {
 
   return <section className="studio-gemini" aria-label="Gemini research agent">
     <div className="studio-agent-note"><Sparkles aria-hidden="true" /><h3>Research with Gemini</h3><p>Ask about the evidence, challenge a thesis, or propose widgets for this board. You approve every change.</p></div>
-    <p className="studio-subtle" role="status">{status ? `${status.model} · ${status.configured ? "Key configured · verified when you send a request" : "Setup required"}` : connectionError || "Checking Gemini configuration…"}</p>
+    <p className="studio-subtle" role="status">{status ? `${status.model} · ${status.enabled === false ? "Paused pending provider verification" : status.configured ? "Key configured · verified when you send a request" : "Setup required"}` : connectionError || "Checking Gemini configuration…"}</p>
     {(!status?.configured || connectionError) && <div className="research-receipt">
-      {status && <p>Add <code>GEMINI_API_KEY</code> to the server environment to enable Gemini. Never paste keys into the research question.</p>}
+      {status && (status.enabled === false ? <p>Gemini research is paused while full provider requests are being verified. Your dashboard and rule-based tools remain available.</p> : <p>Add <code>GEMINI_API_KEY</code> to the server environment to enable Gemini. Never paste keys into the research question.</p>)}
       {connectionError.startsWith("Sign in") && <a href="/signin-with-chatgpt?return_to=%2F" target="_top">Sign in to Plan3</a>}
       <button type="button" onClick={() => setCheck(n => n + 1)}>Check connection again</button>
     </div>}

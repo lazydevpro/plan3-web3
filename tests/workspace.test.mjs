@@ -15,6 +15,21 @@ import { defaultBoard, WIDGET_IDS, parseBoard } from "../lib/plan3-board.ts";
 import { mergeBoard, applyDraft, boardChanges, boardRevision, applyChanges, contentEqual } from "../lib/workspace-edits.ts";
 import { createResearchBoard } from "../lib/research-setup.ts";
 
+test("exchange widgets round-trip, duplicate independently, and retain layout without wallet state", () => {
+  const board = templateBoard("blank");
+  for (const kind of ["jupiter", "lifi"]) {
+    const block = makeBlock(kind);
+    assert.equal(block.rect.w, 460);
+    assert.equal(block.rect.h, 680);
+    board.blocks.push(block, duplicateBlock(block));
+  }
+  const restored = parseWorkspaceBoard(JSON.parse(JSON.stringify(board)), WIDGET_IDS, parseBoard);
+  assert.deepEqual(restored, board);
+  assert.equal(new Set(restored.blocks.map(block => block.id)).size, 4);
+  assert.ok(!JSON.stringify(restored).includes("wallet"));
+  assert.equal(boardChanges(board, { ...restored, asset: "ETH" }).filter(change => change.key.startsWith("widget:")).length, 0);
+});
+
 test("guided setup creates a connected research loop with the user's condition", () => {
   const b = createResearchBoard({ question: "Does ETH strength have support?", asset: "ETH", metric: "change7d", operator: "lt", threshold: -8 });
   assert.equal(b.asset, "ETH");

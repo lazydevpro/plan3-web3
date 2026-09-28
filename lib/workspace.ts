@@ -10,6 +10,8 @@ export const KINDS = [
   "rule",
   "note",
   "source",
+  "jupiter",
+  "lifi",
   "preset",
 ] as const;
 export type BlockKind = (typeof KINDS)[number];
@@ -119,13 +121,15 @@ export function makeBlock(kind: BlockKind, patch: Partial<Block> = {}): Block {
       rule: "Invalidation condition",
       note: "Working thesis",
       source: "Research source",
+      jupiter: "Jupiter Swap",
+      lifi: "LI.FI Bridge & Swap",
       preset: "CMC widget",
     }[kind],
     rect: {
       x: 0,
       y: 0,
-      w: kind === "chart" || kind === "table" ? 520 : 340,
-      h: kind === "chart" || kind === "table" ? 320 : 250,
+      w: kind === "jupiter" || kind === "lifi" ? 460 : kind === "chart" || kind === "table" ? 520 : 340,
+      h: kind === "jupiter" || kind === "lifi" ? 680 : kind === "chart" || kind === "table" ? 320 : 250,
     },
     config: {
       asset: "$asset",
