@@ -55,6 +55,7 @@ import {
   templateBoard,
   uid,
   WORKSPACE_KEY,
+  safeSource,
   type Block,
   type BlockKind,
   type Connection,
@@ -64,7 +65,9 @@ import {
 } from "@/lib/workspace";
 import { BuilderWidget } from "./builder-widgets";
 import Image from "next/image";
-import { applyDraft, applyChanges, boardChanges, boardRevision, mergeBoard } from "@/lib/workspace-edits";
+import { applyDraft, applyChanges, boardChanges, boardRevision, mergeBoard, contentEqual } from "@/lib/workspace-edits";
+import { ResearchSetup } from "./research-setup";
+import { WidgetBoundary } from "./widget-boundary";
 
 type CatalogItem = {
   id: WidgetId;
@@ -106,6 +109,14 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   const [readOnly, setReadOnly] = useState(false);
   const [live, setLive] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
+  const [listView, setListView] = useState(false);
+  const [libraryMode, setLibraryMode] = useState<"instruments" | "feeds">("instruments");
+  const [setupComplete, setSetupComplete] = useState(false);
+  const panelRef = useRef<HTMLElement>(null);
+  const panelTrigger = useRef<HTMLElement | null>(null);
+  const [formError, setFormError] = useState("");
+  const [compactScreen, setCompactScreen] = useState(false);
+  useEffect(() => { const media = window.matchMedia("(max-width: 1100px)"); const update = () => setCompactScreen(media.matches); update(); media.addEventListener("change", update); return () => media.removeEventListener("change", update); }, []);
   const [selected, setSelected] = useState<string | null>(null);
   const [selection, setSelection] = useState<string[]>([]);
   const [draft, setDraft] = useState<Block | null>(null);
@@ -131,6 +142,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   const [zoom, setZoom] = useState(1);
   const [links, setLinks] = useState(true);
   const [notice, setNotice] = useState("");
+  useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(""), 9000); return () => window.clearTimeout(timer); }, [notice]);
   const [shareUrl, setShareUrl] = useState("");
   const [copied, setCopied] = useState(false);
   const [relation, setRelation] = useState<Connection["relation"]>("supports");
@@ -175,7 +187,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   const activeBlock = board.blocks.find((b) => b.id === selected);
   const editable = !readOnly && !live;
   const setExpanded = market.setExpanded;
-  useEffect(() => { setExpanded(board.blocks.some(b => b.kind === "preset") || panel === "library" || panel === "health"); }, [board.blocks, panel, setExpanded]);
+  useEffect(() => { setExpanded(board.blocks.some(b => b.kind === "preset") || (panel === "library" && libraryMode === "feeds") || panel === "health"); }, [board.blocks, panel, libraryMode, setExpanded]);
+  useEffect(() => {
+    if (panel) {
+      if (!panelTrigger.current?.isConnected && !panelRef.current?.contains(document.activeElement)) panelTrigger.current = document.activeElement as HTMLElement;
+      panelRef.current?.focus();
+    } else if (panelTrigger.current?.isConnected) { panelTrigger.current.focus(); panelTrigger.current = null; }
+  }, [panel, setupComplete]);
   const bounds = {
     w: Math.max(
       1320,
@@ -252,7 +270,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     setNotice("Widget duplicated. Its configuration is independent.");
   }
   function openEditor(block: Block, isNew = false) {
-    legacyBase.current = structuredClone(board.legacy ?? defaultBoard);
+    setFormError("");
+    legacyBase.current = structuredClone(block.presetSettings ?? board.legacy ?? defaultBoard);
     setLegacyDraft(structuredClone(legacyBase.current));
     draftBase.current = structuredClone(block);
     linkBase.current = board.connections.filter(c => c.from === block.id || c.to === block.id);
@@ -358,11 +377,27 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     }
   }
 
+  function recoverStorage() {
+    try {
+      const original = localStorage.getItem(WORKSPACE_KEY);
+      // Do not replace unreadable content unless a separate recovery copy succeeds.
+      if (original) localStorage.setItem(`${WORKSPACE_KEY}.recovery.${Date.now()}`, original);
+      const valid = [...boards.filter(b => b.id !== board.id), board].filter(b => parseWorkspaceBoard(b, WIDGET_IDS, parseBoard));
+      localStorage.setItem(WORKSPACE_KEY, JSON.stringify({ boards: valid, activeId: board.id }));
+      savedBase.current.clear();
+      for (const b of valid) savedBase.current.set(b.id, b);
+      setStorageBlocked(false);
+      setSaveState("Saved locally");
+      setNotice("Local saving restored. The previous stored content was kept in a separate recovery backup in this browser.");
+    } catch { setNotice("Storage is still unavailable or full. Export your board before closing this tab. No original stored content was deleted."); }
+  }
+
   useEffect(() => {
     let next = templateBoard();
     let savedBoards: WorkspaceBoard[] = [];
     let shared = false;
     try {
+      setListView(localStorage.getItem("plan3.reading-view") === "list" || window.matchMedia("(max-width: 680px)").matches);
       const stored = localStorage.getItem(WORKSPACE_KEY);
       if (stored) {
         const saved = JSON.parse(stored) as Workspace;
@@ -371,6 +406,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         savedBoards = saved.boards
           .map((b) => parseWorkspaceBoard(b, WIDGET_IDS, parseBoard))
           .filter((b): b is WorkspaceBoard => !!b);
+        if (savedBoards.length !== saved.boards.length) throw new Error("Some saved boards could not be read. Export your current work before repairing storage");
         next =
           savedBoards.find((b) => b.id === saved.activeId) ??
           savedBoards[0] ??
@@ -443,11 +479,11 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       if (result.conflicts.length) {
         next = { ...board, id: uid(), name: `${board.name} · recovered edit`.slice(0, 100) };
         setNotice("Another tab changed the same fields. Both versions are safe: your changes are in a recovered board. Compare them in Boards.");
-      } else if (JSON.stringify(next) !== JSON.stringify(board)) {
+      } else if (!contentEqual(next, board)) {
         setNotice("Changes from another tab merged. Both sets of edits are preserved.");
       }
       merged.set(next.id, next);
-      if (remote && JSON.stringify(remote) !== JSON.stringify(next)) {
+      if (remote && !contentEqual(remote, next)) {
         const key = `${WORKSPACE_KEY}.history.${board.id}`;
         const old: Array<{ at: string; board: WorkspaceBoard }> = JSON.parse(localStorage.getItem(key) ?? "[]");
         localStorage.setItem(key, JSON.stringify([{ at: new Date().toISOString(), board: remote }, ...(Array.isArray(old) ? old : [])].slice(0, 12)));
@@ -458,7 +494,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       );
       savedBase.current.set(next.id, next);
       setSaveState("Saved locally");
-      if (JSON.stringify(next) !== JSON.stringify(board)) {
+      if (!contentEqual(next, board)) {
         setBoards([...merged.values()]);
         setHistory(h => h.present === board ? { past: [], present: next, future: [] } : h);
         setPanel(null);
@@ -835,6 +871,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
           Linked widgets follow · pinned widgets stay
         </span>
         <div className="studio-toolbar-end">
+          <button aria-pressed={listView} onClick={() => { setListView(!listView); try { localStorage.setItem("plan3.reading-view", !listView ? "list" : "canvas"); } catch { /* View preference must not block board editing. */ } }}>{listView ? "List view" : "Canvas view"}</button>
           <button
             disabled={!editable || !history.past.length}
             onClick={undo}
@@ -869,7 +906,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               ? "Connecting…"
               : market.error
                 ? "Data error"
-                : `CMC · ${market.data?.health ?? "unavailable"}`}
+                : market.refreshing ? `Loading feeds · ${Object.values(market.data?.feeds ?? {}).filter(f => f.status !== "pending").length}/${Object.keys(market.data?.feeds ?? {}).length}` : `CMC · ${market.data?.health ?? "unavailable"}`}
           </button>
         </div>
       </div>
@@ -906,7 +943,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             </button>
           </div>
         </nav>
-        <section className="studio-workarea">
+        <section className="studio-workarea" inert={compactScreen && !!panel}>
+          {storageBlocked && <div className="studio-recovery-banner" role="alert"><span>Local saving is paused. Original stored content is protected.</span><button onClick={download}>Export current board</button><button onClick={recoverStorage}>Back up storage & repair saves</button></div>}
           <div className="studio-canvas-heading">
             <div>
               <span className="eyebrow">RESEARCH CANVAS</span>
@@ -916,12 +954,12 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               </span>
             </div>
             <span>
-              {editable
+              {listView ? "Reading order · full-size widgets · switch to Canvas view to arrange" : editable
                 ? "Drag the header · resize the corner · Space + drag to pan"
                 : "Observe mode · layout locked"}
             </span>
           </div>
-          {editable && <div className="studio-build-tools">
+          {editable && !listView && <div className="studio-build-tools">
             <button aria-pressed={snap} onClick={() => setSnap(!snap)}>{snap ? "Snap · on" : "Snap · off"}</button>
             <span>Optional 16px guides · free placement by default</span>
             {selection.length > 1 && <>
@@ -937,7 +975,10 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             </>}
           </div>}
           <div
-            className="studio-viewport"
+            className={`studio-viewport ${listView ? "studio-list-view" : ""}`}
+            tabIndex={0}
+            role="region"
+            aria-label={listView ? "Research widgets in reading order" : "Research canvas"}
             ref={viewport}
             onPointerDown={(e) => {
               if (e.button === 1 || (space.current && e.button === 0)) {
@@ -978,7 +1019,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   transform: `scale(${zoom})`,
                 }}
               >
-                {links && (
+                {links && !listView && (
                   <svg
                     className="studio-connections"
                     width={bounds.w}
@@ -1049,7 +1090,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     )}
                   </div>
                 )}
-                {board.blocks.map((block, blockIndex) => {
+                {(listView ? [...board.blocks].sort((a, b) => a.rect.y - b.rect.y || a.rect.x - b.rect.x) : board.blocks).map((block, blockIndex) => {
                   const rect = drag?.id === block.id ? drag.rect : drag?.group[block.id] ?? block.rect;
                   return (
                     <article
@@ -1057,6 +1098,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       key={block.id}
                       data-block-id={block.id}
                       data-kind={block.kind}
+                      aria-label={block.title}
                       style={{
                         left: rect.x,
                         top: rect.y,
@@ -1074,7 +1116,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                           className="studio-grip"
                           title={`Move ${block.title}`}
                           aria-label={`Move ${block.title}`}
-                          disabled={!editable || block.locked}
+                          disabled={!editable || block.locked || listView}
                           onPointerDown={(e) => {
                             if (!space.current) startGesture(e, block, "move");
                           }}
@@ -1105,8 +1147,9 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         )}
                       </header>
                       <div className="studio-block-content">
+                        <WidgetBoundary resetKey={JSON.stringify(block)}>
                         {block.kind === "preset" && block.config.preset ? (
-                          renderPreset(block.config.preset, board, editable ? status => commit(b => ({ ...b, legacy: { ...(b.legacy ?? defaultBoard), monitor: { ...(b.legacy ?? defaultBoard).monitor, status } } })) : undefined)
+                          renderPreset(block.config.preset, { ...board, legacy: block.presetSettings ?? board.legacy }, editable ? status => commit(b => ({ ...b, blocks: b.blocks.map(w => w.id === block.id ? { ...w, presetSettings: { ...(w.presetSettings ?? b.legacy ?? defaultBoard), monitor: { ...(w.presetSettings ?? b.legacy ?? defaultBoard).monitor, status } } } : w) })) : undefined)
                         ) : (
                           <BuilderWidget
                             block={block}
@@ -1116,6 +1159,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                             loading={market.loading}
                           />
                         )}
+                        </WidgetBoundary>
                       </div>
                       {editable && !block.locked && (
                         <button
@@ -1144,7 +1188,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 ? "Read-only snapshot · live market values"
                 : `${saveState} · no trades executed`}
             </span>
-            <div>
+            <div hidden={listView}>
               <button
                 aria-label="Zoom out"
                 onClick={() => setZoom((z) => Math.max(0.25, z - 0.1))}
@@ -1167,6 +1211,18 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
         </section>
         {panel && (
           <aside
+            ref={panelRef}
+            tabIndex={-1}
+            aria-label="Workspace panel"
+            role={compactScreen ? "dialog" : "region"}
+            aria-modal={compactScreen || undefined}
+            onKeyDown={event => {
+              if (!compactScreen || event.key !== "Tab") return;
+              const elements = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], summary')].filter(el => el.checkVisibility() && !el.closest('[inert]') && (!el.closest('details:not([open])') || el.tagName === 'SUMMARY'));
+              const first = elements[0], last = elements.at(-1);
+              if (event.shiftKey && (document.activeElement === first || document.activeElement === event.currentTarget)) { event.preventDefault(); last?.focus(); }
+              else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+            }}
             className={`studio-panel ${panel === "library" ? "studio-library" : ""}`}
           >
             <header>
@@ -1198,8 +1254,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               <>
                 <div className="studio-panel-intro">
                   <p>
-                    Compose your own instrument, or start from a CMC preset.
-                    Every widget can be added more than once.
+                    Instruments have editable calculations and asset bindings. CMC feeds provide specialist views with a fixed scope.
                   </p>
                   <button
                     disabled={!editable}
@@ -1210,16 +1265,22 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     Create custom widget
                   </button>
                 </div>
+                <div className="studio-library-modes" role="group" aria-label="Widget category"><button aria-pressed={libraryMode === "instruments"} onClick={() => { setLibraryMode("instruments"); setQuery(""); }}>Your instruments</button><button aria-pressed={libraryMode === "feeds"} onClick={() => { setLibraryMode("feeds"); setQuery(""); }}>CMC feeds</button></div>
                 <label className="studio-search">
                   <Search />
                   <input
-                    placeholder="Search CMC widgets…"
+                    type="search"
+                    placeholder={libraryMode === "feeds" ? "Search CMC feeds…" : "Search instruments…"}
                     aria-label="Search widgets"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
                 </label>
                 <div className="studio-preset-list">
+                  {libraryMode === "instruments" ? <>
+                    {KINDS.filter(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())).map(kind => <div className="studio-preset" key={kind}><div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => openEditor(makeBlock(kind), true)}>Customize</button></div><div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} /></div><p>Independent settings · preview before adding</p></div>)}
+                    {!KINDS.some(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())) && <p>No instruments match. Try “chart”, “condition”, or “note”.</p>}
+                  </> : <>
                   {!catalog.some(c => `${c.name} ${c.detail}`.toLowerCase().includes(query.toLowerCase())) && <div className="studio-panel-intro"><h3>No matching widgets</h3><p>Try “price”, “volume”, or build your own instrument.</p><button onClick={() => setQuery("")}>Clear search</button></div>}
                   {catalog
                     .filter((c) =>
@@ -1251,6 +1312,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         </p>
                       </div>
                     ))}
+                  </>}
                 </div>
               </>
             )}
@@ -1267,7 +1329,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       }
                     />
                   </label>
-                  {draft.kind === "preset" && draft.config.preset === "thesis" && <label>Thesis summary<textarea rows={5} maxLength={1200} value={legacyDraft.thesis.summary} onChange={e => setLegacyDraft({ ...legacyDraft, thesis: { ...legacyDraft.thesis, summary: e.target.value } })} /><small>This legacy thesis is shared by thesis presets on this board. Use a note for an independent thesis.</small></label>}
+                  {draft.kind === "preset" && draft.config.preset === "thesis" && <label>Thesis summary<textarea rows={5} maxLength={600} value={legacyDraft.thesis.summary} onChange={e => setLegacyDraft({ ...legacyDraft, thesis: { ...legacyDraft.thesis, summary: e.target.value } })} /><small>These settings belong to this widget. Duplicates are independent. Maximum 600 characters.</small></label>}
                   {draft.kind === "preset" && draft.config.preset === "agent" && <fieldset><legend>Board monitor · human approval</legend>
                     <label>Description<textarea rows={3} maxLength={400} value={legacyDraft.monitor.description} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, description: e.target.value } })} /></label>
                     <label>Volume change below (%)<input type="number" value={legacyDraft.monitor.volumeChangeBelow} onChange={e => setLegacyDraft({ ...legacyDraft, monitor: { ...legacyDraft.monitor, volumeChangeBelow: Number(e.target.value) || 0 } })} /></label>
@@ -1493,10 +1555,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       )}
                     </div>
                     {draft.kind === "preset" && (
-                      <p className="studio-subtle">
-                        Preset scope is fixed. Create a custom instrument for
-                        editable metrics and asset bindings.
-                      </p>
+                      <p className="studio-subtle">CMC feed scope is fixed. Use Your instruments for editable calculations and asset bindings. Thesis and monitor settings are independent per widget.</p>
                     )}
                   </section>
                   {!creating && (
@@ -1509,6 +1568,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                               {key.toUpperCase()}
                               <input
                                 type="number"
+                                disabled={draft.locked}
                                 value={draft.rect[key]}
                                 min={key === "w" ? 240 : key === "h" ? 160 : 0}
                                 onChange={(e) =>
@@ -1641,6 +1701,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   )}
                 </div>
                 <footer className="studio-panel-footer">
+                  {formError && <p className="studio-form-error" role="alert">{formError}</p>}
                   {!creating && (
                     <button
                       aria-label="Delete widget"
@@ -1653,12 +1714,15 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   <button
                     className="studio-primary"
                     onClick={() => {
+                      if (!draft.title.trim()) return setFormError("Give this widget a title before saving.");
+                      if (draft.kind === "source" && draft.config.url && !safeSource(draft.config.url)) return setFormError("Use a full http:// or https:// URL without a username or password.");
+                      if (!Number.isFinite(draft.config.threshold) || (draft.config.minimum != null && !Number.isFinite(draft.config.minimum))) return setFormError("Threshold and minimum must be valid numbers.");
+                      if (draft.kind === "preset" && draft.config.preset === "agent" && (legacyDraft.monitor.volumeChangeBelow < -100 || legacyDraft.monitor.volumeChangeBelow > 100 || legacyDraft.monitor.fundingAbove < -1 || legacyDraft.monitor.fundingAbove > 1)) return setFormError("Monitor percentages must be between −100 and 100. Your changes have not been saved.");
                       if (creating) add(draft);
                       else {
                         commit(b => {
-                          const next = applyDraft(b, draftBase.current ?? draft, draft, draftLinks, linkBase.current);
-                          if (draft.kind !== "preset" || !["thesis", "agent"].includes(draft.config.preset ?? "")) return next;
-                          return mergeBoard({ ...next, legacy: legacyBase.current }, { ...next, legacy: legacyDraft }, { ...next, legacy: b.legacy ?? defaultBoard }).board;
+                          const edited = draft.kind === "preset" && ["thesis", "agent"].includes(draft.config.preset ?? "") ? { ...draft, presetSettings: legacyDraft } : draft;
+                          return applyDraft(b, draftBase.current ?? draft, edited, draftLinks, linkBase.current);
                         });
                         setPanel(null);
                         setNotice("Widget and evidence links saved. Undo is available.");
@@ -1885,6 +1949,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               </div>
             )}
             {panel === "help" && <div className="studio-panel-scroll studio-guide">
+              {!setupComplete ? <ResearchSetup disabled={!editable} onCreate={next => { switchBoard(next, true); setSetupComplete(true); setPanel("help"); setNotice("Your research loop is ready. The chart supports your thesis; the condition watches it. Everything is editable."); }} /> : <section className="research-receipt" role="status"><h3>Your research loop is ready.</h3><p>Read the evidence, refine your thesis, then review changes with an agent.</p><button onClick={() => { const thesis = board.blocks.find(b => b.kind === "note"); if (thesis) openEditor(thesis); }}>Refine my thesis</button><button onClick={() => setPanel("agent")}>Review with an agent</button><button onClick={() => setSetupComplete(false)}>Start another question</button></section>}
+              <details><summary>How the research loop works</summary>
               <span className="eyebrow">QUESTION → EVIDENCE → REVIEW</span>
               <h3>Build a workspace that can change your mind.</h3>
               <ol>
@@ -1893,6 +1959,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                 <li><strong>Make the condition explicit.</strong><p>Add a condition and connect it to your thesis with “watches”. A matching condition highlights that thesis for review.</p><button disabled={!editable} onClick={() => openEditor(makeBlock("rule"), true)}>Add a condition</button></li>
                 <li><strong>Review, don’t blindly accept.</strong><p>A compatible agent can propose changes. Inspect the before/after, choose individual changes, and apply them together. Undo is always available in this session.</p><button onClick={() => setPanel("agent")}>Open collaboration</button></li>
               </ol>
+              </details>
               <h3>Canvas shortcuts</h3><p>Arrow keys on a widget header move it. Shift + Arrow moves by 1px. Arrow keys on the resize handle change its size. ⌘/Ctrl + Z undoes. Hold Space on the canvas and drag to pan.</p>
               <p>Boards are saved in this browser, not a cloud account. Export regularly. Conditions run only while the page is open; this workspace never executes trades.</p>
             </div>}
@@ -1901,7 +1968,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               <p className="studio-subtle">Each feed reports separately. A fresh response does not guarantee a fresh quote. Historical charts show their observation dates.</p>
               {market.error && <p role="alert">{market.error}</p>}
               <button onClick={market.retry} disabled={market.refreshing || market.loading}><RefreshCw />Retry data feeds</button>
-              {Object.entries(market.data?.feeds ?? {}).map(([name, feed]) => <div className="studio-feed" key={name}><strong>{name}</strong><span className={feed.status === "error" ? "is-negative" : ""}>{feed.status === "error" ? "Unavailable" : "Received"}</span><small>{feed.message ?? (feed.updatedAt ? new Date(feed.updatedAt).toLocaleString() : "No update timestamp")}</small></div>)}
+              {Object.entries(market.data?.feeds ?? {}).map(([name, feed]) => <div className="studio-feed" key={name}><strong>{name}</strong><span className={feed.status === "error" ? "is-negative" : ""}>{feed.status === "pending" ? "Loading…" : feed.status === "error" ? "Unavailable · last-known values only" : "Received"}</span><small>{feed.message ?? (feed.updatedAt ? new Date(feed.updatedAt).toLocaleString() : "Waiting for this feed")}</small></div>)}
             </div>}
           </aside>
         )}
@@ -1909,15 +1976,13 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       {(notice || market.error) && (
         <div className="studio-notice" role="status">
           <span>{notice || market.error}</span>
+          {!notice && market.error ? <button onClick={market.retry} disabled={market.refreshing}>Retry</button> :
           <button
-            onClick={() => {
-              setNotice("");
-              if (market.error) market.retry();
-            }}
+            onClick={() => setNotice("")}
             aria-label="Dismiss notification"
           >
             <X />
-          </button>
+          </button>}
         </div>
       )}
       {shareUrl && (
@@ -1976,6 +2041,8 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
       )}
       <input
         ref={importRef}
+        tabIndex={-1}
+        aria-label="Import board file"
         className="sr-only"
         type="file"
         accept=".json,application/json"

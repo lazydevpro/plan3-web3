@@ -72,6 +72,7 @@ export type Block = {
   kind: BlockKind;
   title: string;
   locked?: boolean;
+  presetSettings?: BoardState;
   rect: WidgetRect;
   config: {
     asset: string;
@@ -258,6 +259,9 @@ export function evaluateRule(
       a.symbol ===
       (block.config.asset === "$asset" ? board.asset : block.config.asset),
   );
+  const feed = data?.assets.some(a => a.symbol === asset?.symbol) ? "assets" : "listings";
+  if (data?.feeds?.[feed] && data.feeds[feed].status !== "ok") return "unknown";
+  if (!asset?.lastUpdated) return "unknown";
   if (asset?.lastUpdated) {
     const quoteAge = now - Date.parse(asset.lastUpdated);
     if (!Number.isFinite(quoteAge) || quoteAge > 600_000 || quoteAge < -60_000)
@@ -316,6 +320,7 @@ export function parseWorkspaceBoard(
       !KINDS.includes(w.kind) ||
       typeof w.title !== "string" ||
       (w.locked !== undefined && typeof w.locked !== "boolean") ||
+      (w.presetSettings !== undefined && (!parseLegacy || !parseLegacy(w.presetSettings))) ||
       !w.rect ||
       !w.config
     )
@@ -385,6 +390,7 @@ export function parseWorkspaceBoard(
       kind: w.kind,
       title: w.title.slice(0, 100),
       ...(w.locked !== undefined ? { locked: w.locked } : {}),
+      ...(w.presetSettings && parseLegacy ? { presetSettings: parseLegacy(w.presetSettings)! } : {}),
       rect: { x: w.rect.x, y: w.rect.y, w: w.rect.w, h: w.rect.h },
       config: {
         asset: w.config.asset,

@@ -94,7 +94,7 @@ export type CmcDexSnapshot = {
 
 export type CmcOverview = {
   health?: "healthy" | "partial" | "unavailable";
-  feeds?: Record<string, { status: "ok" | "error"; updatedAt: string | null; message?: string }>;
+  feeds?: Record<string, { status: "ok" | "error" | "pending"; updatedAt: string | null; message?: string }>;
   mode: "full" | "public";
   retrievedAt: string;
   assets: CmcAssetQuote[];
@@ -598,7 +598,7 @@ function parseRwaDetail(quotePayload: Record<string, unknown>, issuerPayload: Re
   };
 }
 
-export async function getCmcOverview(scope: "core" | "all" = "all"): Promise<CmcOverview> {
+export async function getCmcOverview(scope: "core" | "all" = "all", onProgress?: (data: CmcOverview) => void): Promise<CmcOverview> {
   const apiKey = process.env.CMC_PRO_API_KEY?.trim();
   const errors: string[] = [];
   const jupAddress = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
@@ -634,26 +634,29 @@ export async function getCmcOverview(scope: "core" | "all" = "all"): Promise<Cmc
     rwaIssuers: ["/v5/real-world-assets/issuers/list?limit=8", 3600],
   });
   const entries = Object.entries(endpoints).filter(([name]) => scope === "all" || ["assets", "listings", "history"].includes(name));
-  const settled = await Promise.allSettled(entries.map(([, [path, revalidate]]) => requestCmc(path, apiKey, revalidate)));
   const results: Record<string, Record<string, unknown>> = {};
   const feeds: NonNullable<CmcOverview["feeds"]> = {};
-  entries.forEach(([name], index) => {
-    const result = settled[index];
-    if (result.status === "fulfilled") {
-      results[name] = result.value;
-      feeds[name] = { status: "ok", updatedAt: stringOrNull(record(result.value.status).timestamp) ?? new Date().toISOString() };
-    } else {
-      const message = result.reason instanceof Error ? result.reason.message : "Unavailable";
+  for (const [name] of entries) feeds[name] = { status: "pending", updatedAt: null };
+  await Promise.all(entries.map(async ([name, [path, revalidate]]) => {
+    try {
+      const result = await requestCmc(path, apiKey, revalidate);
+      results[name] = result;
+      feeds[name] = { status: "ok", updatedAt: stringOrNull(record(result.status).timestamp) ?? new Date().toISOString() };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unavailable";
       errors.push(`${name}: ${message}`);
       feeds[name] = { status: "error", updatedAt: null, message };
     }
-  });
+    onProgress?.(snapshot());
+  }));
+  return snapshot();
+  function snapshot(): CmcOverview {
   const emptyLiquidations: CmcOverview["liquidations"] = { total1h: null, total4h: null, total24h: null, longs24h: null, shorts24h: null, updatedAt: null, available: false };
   const emptyDerivatives: CmcOverview["derivatives"] = { fundingRate: null, openInterest: null, venue: null, pair: null, updatedAt: null, available: false };
   const dexToken = results.dexToken ? parseDexToken(results.dexToken) : { token: null, pools: [] };
   return {
     health: !Object.keys(results).length ? "unavailable" : errors.length ? "partial" : "healthy",
-    feeds,
+    feeds: { ...feeds },
     mode: apiKey ? "full" : "public",
     retrievedAt: new Date().toISOString(),
     assets: results.assets ? parseAssets(results.assets) : [],
@@ -696,6 +699,7 @@ export async function getCmcOverview(scope: "core" | "all" = "all"): Promise<Cmc
     altcoinSeason: results.season ? parseIndex(results.season, "season") : { value: null, label: null, updatedAt: null },
     liquidations: results.liquidations ? parseLiquidations(results.liquidations) : emptyLiquidations,
     derivatives: results.derivatives ? parseDerivatives(results.derivatives) : emptyDerivatives,
-    errors,
+    errors: [...errors],
   };
+  }
 }

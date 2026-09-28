@@ -20,6 +20,7 @@ import { useClock } from "@/hooks/use-clock";
 import type { CmcAssetQuote, CmcOverview } from "@/lib/cmc";
 import { defaultBoard } from "@/lib/plan3-board";
 import type { BoardState, WidgetId } from "@/lib/plan3-board";
+import { PRESET_FEEDS } from "@/lib/widget-feeds";
 
 const widgetCatalog: Array<{ id: WidgetId; name: string; detail: string; icon: typeof Activity; access: "Live" | "Full access" | "Plan3" | "Locked" }> = [
   { id: "market", name: "Asset snapshot", detail: "Price, volume, market cap and momentum", icon: Activity, access: "Live" },
@@ -73,6 +74,9 @@ export default function Home() {
 }
 
 function renderWidget(id: WidgetId, market: ReturnType<typeof useCmcMarket>, sol: CmcAssetQuote | null, board: BoardState, setProposal: (value: "pending" | "accepted" | "rejected") => void, readOnly: boolean) {
+  const dependencies = PRESET_FEEDS[id];
+  if (dependencies.length && (market.loading || dependencies.some(feed => market.data?.feeds?.[feed]?.status === "pending"))) return <div className="instrument instrument-loading" role="status"><span>Loading this feed…</span><i /><i /><small>Other widgets are ready independently.</small></div>;
+  if (dependencies.some(feed => market.data?.feeds?.[feed]?.status === "error") || (market.error && dependencies.length)) return <div className="instrument-empty"><strong>This feed needs attention</strong><p>Fresh values could not be verified. Your widget settings are safe.</p><button onClick={market.retry} disabled={market.refreshing}>Retry data</button></div>;
   if (isExtendedWidget(id)) return <ExtendedWidget id={id} data={market.data} loading={market.loading} />;
   if (id === "market") return <MarketWidget asset={sol} loading={market.loading} refreshing={market.refreshing} refresh={market.retry} />;
   if (id === "watchlist") return <WatchlistWidget assets={market.data?.assets ?? []} loading={market.loading} />;

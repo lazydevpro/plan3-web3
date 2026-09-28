@@ -65,12 +65,16 @@ export function BuilderWidget({
     )
     .join(" ");
   const state = evaluateRule(block, board, data, now, failed);
+  const feed = data?.assets.some(a => a.symbol === symbol) ? "assets" : "listings";
+  const requiredFeeds = ["note", "source"].includes(block.kind) ? [] : block.kind === "chart" ? [feed, "history"] : ["table", "ranking"].includes(block.kind) ? ["listings", "assets"] : [feed];
+  const pending = requiredFeeds.some(name => data?.feeds?.[name]?.status === "pending");
   const stale =
     failed ||
+    requiredFeeds.some(name => data?.feeds?.[name]?.status === "error") ||
     data?.health === "unavailable" ||
     (["metric", "rule", "chart"].includes(block.kind) && (!asset || !asset.lastUpdated || !Number.isFinite(Date.parse(asset.lastUpdated)) || now - Date.parse(asset.lastUpdated) > 600000)) ||
     (block.kind === "chart" && (!history.length || data?.feeds?.history?.status === "error")) ||
-    (["table", "ranking"].includes(block.kind) && !rows.length) ||
+    (["table", "ranking"].includes(block.kind) && (!rows.length || rows.some(a => !a.lastUpdated || !Number.isFinite(Date.parse(a.lastUpdated)) || now - Date.parse(a.lastUpdated) > 600000))) ||
     !data ||
     !Number.isFinite(Date.parse(data.retrievedAt)) ||
     now - Date.parse(data.retrievedAt) > 180000;
@@ -78,7 +82,7 @@ export function BuilderWidget({
   const columns = block.kind === "table" ? c.columns ?? [...new Set([c.metric, "price" as const])] : [c.metric];
   const watched = board.connections.filter(link => link.to === block.id && link.relation === "watches").map(link => board.blocks.find(b => b.id === link.from)).filter((b): b is Block => b?.kind === "rule");
   const triggered = watched.filter(rule => evaluateRule(rule, board, data, now, failed) === "met");
-  if (loading && !["note", "source"].includes(block.kind)) return <div className="instrument instrument-loading" role="status" aria-label="Loading market data"><span>Loading CoinMarketCap data…</span><i /><i /><i /><small>Your board remains editable.</small></div>;
+  if ((loading || pending) && !["note", "source"].includes(block.kind)) return <div className="instrument instrument-loading" role="status" aria-label="Loading market data"><span>Loading this feed…</span><i /><i /><i /><small>Your board remains editable.</small></div>;
   return (
     <div className={`instrument instrument-${block.kind}`}>
       <div className="instrument-meta">
@@ -156,6 +160,7 @@ export function BuilderWidget({
                 <span>{history.length} daily observations</span>
                 <span>{history.at(-1)?.timestamp.slice(0, 10)}</span>
               </div>
+              <details className="chart-data"><summary>Read chart values</summary><table><caption>{symbol} daily USD prices</caption><thead><tr><th scope="col">Date</th><th scope="col">Price</th></tr></thead><tbody>{history.map(point => <tr key={point.timestamp}><th scope="row">{point.timestamp.slice(0, 10)}</th><td>{formatMetric(point.price, "price")}</td></tr>)}</tbody></table></details>
             </div>
           ) : (
             <div className="instrument-empty">
@@ -167,17 +172,17 @@ export function BuilderWidget({
       )}
       {(block.kind === "table" || block.kind === "ranking") && (
         <div className="instrument-table">
-          <div className="instrument-row instrument-table-head">
-            <span>Asset</span>
-            {columns.map(metric => <span key={metric}>{METRICS[metric].label}</span>)}
-          </div>
+          <table aria-label={block.title}><thead><tr className="instrument-row instrument-table-head">
+            <th scope="col">Asset</th>
+            {columns.map(metric => <th scope="col" key={metric}>{METRICS[metric].label}</th>)}
+          </tr></thead><tbody>
           {rows.map((a, i) => (
-            <div className="instrument-row" key={a.id}>
-              <strong>
+            <tr className="instrument-row" key={a.id}>
+              <th scope="row">
                 <small>{String(i + 1).padStart(2, "0")}</small>
                 {a.symbol}
-              </strong>
-              {columns.map(metric => <span key={metric}
+              </th>
+              {columns.map(metric => <td key={metric}
                 className={
                   METRICS[metric].unit === "%"
                     ? (metricValue(a, metric) ?? 0) >= 0
@@ -187,9 +192,10 @@ export function BuilderWidget({
                 }
               >
                 {formatMetric(metricValue(a, metric), metric)}
-              </span>)}
-            </div>
+              </td>)}
+            </tr>
           ))}
+          </tbody></table>
           {!rows.length && (
             <div className="instrument-empty">
               No matching assets in the current CMC response.

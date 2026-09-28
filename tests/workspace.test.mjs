@@ -12,13 +12,48 @@ import {
   migrateBoard,
 } from "../lib/workspace.ts";
 import { defaultBoard, WIDGET_IDS, parseBoard } from "../lib/plan3-board.ts";
-import { mergeBoard, applyDraft, boardChanges, boardRevision, applyChanges } from "../lib/workspace-edits.ts";
+import { mergeBoard, applyDraft, boardChanges, boardRevision, applyChanges, contentEqual } from "../lib/workspace-edits.ts";
+import { createResearchBoard } from "../lib/research-setup.ts";
+
+test("guided setup creates a connected research loop with the user's condition", () => {
+  const b = createResearchBoard({ question: "Does ETH strength have support?", asset: "ETH", metric: "change7d", operator: "lt", threshold: -8 });
+  assert.equal(b.asset, "ETH");
+  assert.equal(b.blocks.length, 4);
+  assert.equal(b.connections.length, 2);
+  assert.equal(b.blocks.find(w => w.kind === "rule").config.threshold, -8);
+  assert.ok(b.blocks.find(w => w.kind === "note").config.text.includes("Does ETH strength have support?"));
+  assert.ok(parseWorkspaceBoard(b, WIDGET_IDS, parseBoard));
+  assert.throws(() => createResearchBoard({ question: "", asset: "SOL", metric: "price", operator: "lt", threshold: 1 }));
+});
+test("preset settings survive import and duplication without shared edits", () => {
+  const b = templateBoard("blank"), w = makeBlock("preset");
+  w.config.preset = "thesis";
+  w.presetSettings = structuredClone(defaultBoard);
+  const copy = duplicateBlock(w);
+  copy.presetSettings.thesis.summary = "Independent thesis";
+  b.blocks = [w, copy];
+  const loaded = parseWorkspaceBoard(b, WIDGET_IDS, parseBoard);
+  assert.equal(loaded.blocks[1].presetSettings.thesis.summary, "Independent thesis");
+  assert.notEqual(loaded.blocks[0].presetSettings.thesis.summary, "Independent thesis");
+});
 
 test("proposal revision is stable for a snapshot and changes with edited content", () => {
   const board = templateBoard(), copy = structuredClone(board);
   assert.equal(boardRevision(board), boardRevision(copy));
   copy.blocks[0].rect.x += 10;
   assert.notEqual(boardRevision(board), boardRevision(copy));
+});
+test("validation key ordering is not a remote edit and does not invalidate revisions", () => {
+  const board = templateBoard();
+  board.blocks[0].locked = false;
+  const preset = makeBlock("preset"); preset.config.preset = "thesis";
+  preset.presetSettings = structuredClone(defaultBoard);
+  board.blocks.push(preset);
+  const parsed = parseWorkspaceBoard(board, WIDGET_IDS, parseBoard);
+  assert.ok(contentEqual(board, parsed));
+  assert.equal(boardRevision(board), boardRevision(parsed));
+  assert.deepEqual(boardChanges(board, parsed), []);
+  assert.ok(contentEqual(mergeBoard(board, board, parsed).board, board));
 });
 
 test("concurrent additions from two tabs merge without loss", () => {
@@ -168,12 +203,15 @@ test("conditions resolve linked and pinned context; stale, failed and missing in
   const data = {
     retrievedAt: new Date(now).toISOString(),
     assets: [
-      { symbol: "SOL", change24h: -3 },
-      { symbol: "BTC", change24h: 2 },
+      { symbol: "SOL", change24h: -3, lastUpdated: new Date(now).toISOString() },
+      { symbol: "BTC", change24h: 2, lastUpdated: new Date(now).toISOString() },
     ],
     listings: [],
   };
   assert.equal(evaluateRule(rule, board, data, now), "met");
+  assert.equal(evaluateRule(rule, board, { ...data, feeds: { assets: { status: "pending" } } }, now), "unknown");
+  assert.equal(evaluateRule(rule, board, { ...data, feeds: { assets: { status: "error" } } }, now), "unknown");
+  assert.equal(evaluateRule(rule, board, { ...data, assets: [{ symbol: "SOL", change24h: -3 }] }, now), "unknown");
   rule.config.asset = "BTC";
   assert.equal(evaluateRule(rule, board, data, now), "not met");
   assert.equal(evaluateRule(rule, board, data, now + 180001), "unknown");

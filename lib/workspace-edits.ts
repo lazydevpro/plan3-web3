@@ -1,11 +1,17 @@
 import type { Block, Connection, WorkspaceBoard } from "./workspace";
 
-const equal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+function canonical(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonical);
+  if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).filter(([, v]) => v !== undefined).sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => [k, canonical(v)]));
+  return value;
+}
+export const contentEqual = (a: unknown, b: unknown) => JSON.stringify(canonical(a)) === JSON.stringify(canonical(b));
+const equal = contentEqual;
 
 /** Content fingerprint for stale-proposal detection, never an authentication token. */
 export function boardRevision(board: WorkspaceBoard): string {
   let hash = 2166136261;
-  const value = JSON.stringify(board);
+  const value = JSON.stringify(canonical(board));
   for (let i = 0; i < value.length; i++) hash = Math.imul(hash ^ value.charCodeAt(i), 16777619);
   return `${board.id}:${value.length}:${(hash >>> 0).toString(16)}`;
 }
@@ -61,6 +67,10 @@ function describe(block: Block) {
 function changedSummary(before: Block, after: Block) {
   const labels: Record<string, string> = { asset: "Asset", metric: "Calculation", symbols: "Assets", limit: "Rows", ascending: "Ascending", operator: "Comparison", threshold: "Threshold", text: "Text", url: "Source", columns: "Columns", minimum: "Minimum value", historyDays: "Daily observations" };
   const fields: Array<[string, unknown, unknown]> = [["Title", before.title, after.title], ["Type", before.kind, after.kind], ["Position locked", before.locked ?? false, after.locked ?? false]];
+  if (!equal(before.presetSettings, after.presetSettings)) {
+    fields.push(["Thesis", before.presetSettings?.thesis.summary, after.presetSettings?.thesis.summary]);
+    fields.push(["Monitor", JSON.stringify(before.presetSettings?.monitor), JSON.stringify(after.presetSettings?.monitor)]);
+  }
   for (const key of ["x", "y", "w", "h"] as const) fields.push([key.toUpperCase(), before.rect[key], after.rect[key]]);
   for (const key of new Set([...Object.keys(before.config), ...Object.keys(after.config)])) fields.push([labels[key] ?? key, before.config[key as keyof Block["config"]], after.config[key as keyof Block["config"]]]);
   const changed = fields.filter(([, a, b]) => !equal(a, b));

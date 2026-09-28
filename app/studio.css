@@ -8,6 +8,50 @@
   font-size: 13px;
   overflow: hidden;
 }
+.studio .research-setup { display: grid; gap: 16px; }
+.studio .research-setup h3 { font-size: 22px; line-height: 1.3; margin: 0; }
+.studio .research-setup p { margin: 0; font-size: 14px; }
+.studio .research-setup label { font-size: 14px; }
+.research-receipt { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); background: var(--surface-raised); border-radius: 6px; font-size: 13px; line-height: 1.5; }
+.studio-guide > details { margin: 24px 0; }
+.studio summary { cursor: pointer; padding: 10px 0; font-size: 14px; }
+.studio-library-modes { display: flex; gap: 8px; padding: 0 16px; }
+.studio-library-modes button[aria-pressed="true"] { background: var(--copper-soft); color: var(--foreground); }
+.studio .studio-panel-footer { flex-wrap: wrap; }
+.studio-form-error { width: 100%; color: var(--destructive); font-size: 14px; }
+.studio-list-view .studio-scaled { width: 100% !important; height: auto !important; }
+.studio-list-view .studio-stage { width: 100% !important; height: auto !important; transform: none !important; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap: 16px; padding: 16px; }
+.studio-list-view .studio-block { position: relative !important; left: auto !important; top: auto !important; width: 100% !important; height: auto !important; min-height: 280px; }
+.studio-list-view .studio-block-content { height: auto; max-height: none; overflow: visible; }
+.studio-list-view .studio-resize { display: none; }
+.studio-list-view .studio-grip:disabled { opacity: 1; cursor: default; }
+.studio-list-view .instrument { min-height: 230px; }
+.studio-list-view .studio-empty { position: static; transform: none; padding: 24px; }
+.studio .instrument-table table, .studio .chart-data table { width: 100%; border-collapse: collapse; }
+.studio .instrument-table tr { display: table-row; }
+.studio .instrument-table th, .studio .instrument-table td, .studio .chart-data th, .studio .chart-data td { text-align: right; padding: 10px 8px; border-bottom: 1px solid var(--border); font-weight: 400; white-space: nowrap; }
+.studio .instrument-table th:first-child, .studio .chart-data th:first-child { text-align: left; }
+.studio .instrument-table th small { margin-right: 8px; }
+.studio .chart-data { margin-top: 12px; font-size: 13px; }
+.studio .chart-data caption { text-align: left; }
+.studio :is(button, input, select, textarea, summary, [tabindex]):focus-visible { outline: 2px solid var(--copper); outline-offset: 3px; }
+.studio .studio-panel:focus { outline: none; }
+.studio .studio-panel p { font-size: 14px; line-height: 1.65; }
+.studio .studio-panel :is(input, textarea, select) { font-size: 14px; }
+.studio .studio-recovery-banner { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px; background: var(--surface-raised); border-bottom: 1px solid var(--copper); font-size: 14px; }
+.studio .studio-canvas-heading i { color: var(--muted-foreground); }
+.studio .instrument-note p { font-size: 14px; line-height: 1.7; }
+.studio .chart-range { font-size: 12px; color: var(--muted-foreground); bottom: auto; height: 140px; }
+.studio .instrument-label, .studio .condition-expression, .studio .instrument-table th, .studio .instrument-table td { font-size: 14px; }
+.studio .eyebrow, .studio .studio-rail span, .studio .studio-canvas-footer, .studio .instrument-evidence p { font-size: 12px; }
+.studio .studio-block-header { min-height: 40px; }
+.studio .studio-block-header button { min-height: 36px; min-width: 36px; }
+.studio .studio-grip { font-size: 13px; }
+@media (max-width: 680px) {
+  .studio-list-view .studio-stage { padding: 8px; gap: 12px; }
+  .studio .studio-panel :is(input, textarea, select) { font-size: 16px; }
+  .studio .studio-canvas-footer > span { font-size: 12px; max-width: 150px; }
+}
 .studio-build-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 4px 12px; border-bottom: 1px solid var(--border); }
 .studio-build-tools > span { color: var(--muted-foreground); font-size: 12px; margin-right: auto; }
 .studio-build-tools button[aria-pressed="true"] { color: var(--foreground); background: var(--copper-soft); }
@@ -354,7 +398,7 @@
   flex: 1;
   justify-content: flex-start;
   min-width: 0;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 550;
   gap: 8px;
   cursor: grab;
@@ -375,9 +419,9 @@
   cursor: default;
 }
 .studio .studio-block-header > button:not(.studio-grip) {
-  min-height: 27px;
+  min-height: 36px;
   padding: 3px 5px;
-  color: #938878;
+  color: var(--muted-foreground);
 }
 .studio-block-header > button:not(.studio-grip) svg {
   width: 12px;
