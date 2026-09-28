@@ -21,10 +21,11 @@ try {
     recursive: true,
     filter: (source) => ![".vite", ".assetsignore"].includes(path.basename(source)),
   });
-  cpSync(server, path.join(staging, "_worker.js"), {
+  cpSync(server, path.join(staging, "_worker.js/server"), {
     recursive: true,
     filter: (source) => ![".vite", "wrangler.json"].includes(path.basename(source)),
   });
+  cpSync(path.join(root, "scripts/pages-worker.mjs"), path.join(staging, "_worker.js/index.js"));
 
   const revision = spawnSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" });
   const args = [
