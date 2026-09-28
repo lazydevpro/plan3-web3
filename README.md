@@ -1,4 +1,33 @@
-# vinext-starter
+# Plan3
+
+Plan3 is a collaborative Web3 research canvas with draggable market-data widgets,
+CoinMarketCap-powered feeds, and optional AI research. The application is built
+with Next.js and Vinext. The public Cloudflare Pages deployment uses Pages
+Functions advanced mode so the `/api/cmc` route runs server-side; a static-only
+Pages export would not support live market data.
+
+## Run and deploy
+
+1. Use Node.js 22.13 or later and run `npm ci`.
+2. Copy `.env.example` to `.env`, then set `CMC_PRO_API_KEY` locally. Never commit
+   `.env` or add the key to a `NEXT_PUBLIC_*` variable.
+3. Run `npm run dev` for local development, then `npm run test:workspace`
+   and `npm run build` before deploying. The existing lint command still reports
+   unrelated React-hook and generated-script findings.
+4. In Cloudflare Pages, create a project named `plan3-web3` with production
+   branch `main`, compatibility date `2026-05-15`, and `nodejs_compat`. Add
+   `CMC_PRO_API_KEY` as a **production secret**. The key is read only by the
+   server-side CMC route.
+5. Run `npm run deploy:pages` after `npm run build`. This packages the Vinext
+   server into Pages Functions advanced mode and uploads the client assets.
+
+The current Pages project uses direct uploads, not automatic Git-triggered
+deployments. Pushes to GitHub do not publish by themselves. The Gemini agent
+remains disabled on this public deployment until a non-Sites authentication
+flow and production model configuration are in place; do not enable a billable
+AI endpoint without access control.
+
+## Original Sites/Vinext development notes
 
 A clean full-stack starter running on [vinext](https://github.com/cloudflare/vinext), with optional Cloudflare D1 and Drizzle support.
 
