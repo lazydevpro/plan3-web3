@@ -9,6 +9,15 @@
   overflow: hidden;
 }
 .studio .research-setup { display: grid; gap: 16px; }
+.studio-gemini form { display: grid; gap: 12px; }
+.studio-gemini .research-receipt { margin-bottom: 16px; }
+.studio-agent-error { color: var(--destructive); }
+.studio-agent-error:empty { display: none; }
+.studio-agent-answer { margin: 20px 0; padding: 16px; border: 1px solid var(--border); border-radius: 6px; }
+.studio-agent-answer > p { white-space: pre-wrap; overflow-wrap: anywhere; }
+.studio-agent-answer ul { padding-left: 20px; display: grid; gap: 12px; font-size: 14px; line-height: 1.6; }
+.studio-agent-answer small { display: block; color: var(--muted-foreground); font-size: 12px; }
+.studio-agent-fallback { margin: 24px 0; }
 .studio .research-setup h3 { font-size: 22px; line-height: 1.3; margin: 0; }
 .studio .research-setup p { margin: 0; font-size: 14px; }
 .studio .research-setup label { font-size: 14px; }

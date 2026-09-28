@@ -68,6 +68,7 @@ import Image from "next/image";
 import { applyDraft, applyChanges, boardChanges, boardRevision, mergeBoard, contentEqual } from "@/lib/workspace-edits";
 import { ResearchSetup } from "./research-setup";
 import { WidgetBoundary } from "./widget-boundary";
+import { GeminiResearch } from "./gemini-research";
 
 type CatalogItem = {
   id: WidgetId;
@@ -1820,16 +1821,20 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
             )}
             {panel === "agent" && (
               <div className="studio-panel-scroll" ref={agentScroll}>
+                <GeminiResearch board={board} disabled={readOnly} reviewing={!!proposed} onResult={(result, base) => {
+                  if (proposed || boardRevision(latestContext.current.board) !== result.baseRevision) return false;
+                  const changes = boardChanges(base, result.proposal);
+                  if (changes.length) {
+                    setProposed(result.proposal);
+                    setProposalReason("Gemini proposed these changes. Review each one before applying.");
+                    setProposalMode("patch");
+                    setProposalBase(base);
+                    setAcceptedKeys(changes.map(change => change.key));
+                  } else setNotice("Gemini answered without proposing board changes.");
+                  return true;
+                }} />
                 {!proposed && <>
-                <div className="studio-agent-note">
-                  <Sparkles />
-                  <h3>One canvas. A shared language.</h3>
-                  <p>
-                    Widgets expose their data, configuration, and evidence links
-                    as a structured manifest. Compatible browser agents can read
-                    it and propose changes for your approval.
-                  </p>
-                </div>
+                <details className="studio-agent-fallback"><summary>Use a rule-based starter instead</summary>
                 <span className="eyebrow">GUIDED STARTER · RULE-BASED</span>
                 <p className="studio-subtle">
                   This built-in starter chooses a template. It is not an LLM or
@@ -1853,6 +1858,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   <Sparkles />
                   Preview a research board
                 </button>
+                </details>
                 </>}
                 {proposed && (
                   <section className="studio-proposal">
@@ -1872,7 +1878,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                           {change.category === "widget" && <details><summary>Changed properties</summary><pre>{JSON.stringify({ before: proposalBase.blocks.find(b => b.id === change.id), after: proposed.blocks.find(b => b.id === change.id) }, null, 2)}</pre></details>}</span>
                         </label>)}
                       </div>
-                      {JSON.stringify(board) !== JSON.stringify(proposalBase) && <p role="alert">This board changed after the proposal. Ask the agent to read it again and submit a fresh proposal; nothing will be overwritten.</p>}
+                      {!contentEqual(board, proposalBase) && <p role="alert">This board changed after the proposal. Ask the agent to read it again and submit a fresh proposal; nothing will be overwritten.</p>}
                     </> : <ul>
                       {proposed.blocks.map((b) => (
                         <li key={b.id}>
@@ -1891,7 +1897,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                       <button onClick={() => setProposed(null)}>Dismiss</button>
                       <button
                         className="studio-primary"
-                        disabled={readOnly || (proposalMode === "patch" && (!acceptedKeys.length || JSON.stringify(board) !== JSON.stringify(proposalBase)))}
+                        disabled={readOnly || (proposalMode === "patch" && (!acceptedKeys.length || !contentEqual(board, proposalBase)))}
                         onClick={() => {
                           if (proposalMode === "patch") {
                             const next = applyChanges(board, proposed, acceptedKeys);
@@ -1910,7 +1916,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                   </section>
                 )}
                 <section className="studio-manifest">
-                  <p className="studio-subtle">{agentAvailable ? "Browser agent tools available · changes require your approval" : "No compatible browser agent detected. Use a guided starter or export the manifest."}</p>
+                  <p className="studio-subtle">{agentAvailable ? "External browser agent tools also available · changes require your approval" : "External browser agent tools are unavailable in this browser. Gemini works independently when configured."}</p>
                   <span className="eyebrow">INSPECTABLE MANIFEST</span>
                   <pre>
                     {JSON.stringify(

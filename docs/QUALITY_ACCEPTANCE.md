@@ -1,5 +1,9 @@
 # Plan3 quality acceptance — 2026-09-28
 
+## Gemini integration follow-up
+
+The scorecard below records the earlier review. A server-side Gemini integration has since been implemented locally with validated widget proposals, selective human approval, source references, cancellation/error handling, and mocked-provider tests. The key is configured and a minimal provider response succeeded, but the full research request returned a provider error. Further payload diagnostics require approval; this integration has not been published. See [Gemini setup](./GEMINI_SETUP.md). This does not establish autonomous research, cloud sync, or background alerts, and does not change the provisional scores below.
+
 ## Verdict
 
 The old scorecard predates two substantial improvement passes. The original defects should not be carried forward as if unchanged, but neither automated tests nor the author's opinion establish an absolute 10/10. This is a local-first CMC research builder, not yet a complete hosted AI research platform.
