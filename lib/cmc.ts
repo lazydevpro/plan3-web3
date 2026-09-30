@@ -598,7 +598,7 @@ function parseRwaDetail(quotePayload: Record<string, unknown>, issuerPayload: Re
   };
 }
 
-export async function getCmcOverview(scope: "core" | "all" = "all", onProgress?: (data: CmcOverview) => void): Promise<CmcOverview> {
+export async function getCmcOverview(scope: "core" | "all" = "all", onProgress?: (data: CmcOverview) => void, selectedFeeds?: readonly string[]): Promise<CmcOverview> {
   const apiKey = process.env.CMC_PRO_API_KEY?.trim();
   const errors: string[] = [];
   const jupAddress = "JUPyiwrYJFskUPiHa7hkeR8VUtAeFoSYbKedZNsDvCN";
@@ -633,7 +633,11 @@ export async function getCmcOverview(scope: "core" | "all" = "all", onProgress?:
     rwaGold: ["/v5/real-world-assets/quotes/latest?rwa_id=1&convert=USD", 300],
     rwaIssuers: ["/v5/real-world-assets/issuers/list?limit=8", 3600],
   });
-  const entries = Object.entries(endpoints).filter(([name]) => scope === "all" || ["assets", "listings", "history"].includes(name));
+  const selected = selectedFeeds ? new Set(selectedFeeds) : null;
+  const entries = Object.entries(endpoints).filter(([name]) =>
+    (scope === "all" || ["assets", "listings", "history"].includes(name)) &&
+    (!selected || selected.has(name))
+  );
   const results: Record<string, Record<string, unknown>> = {};
   const feeds: NonNullable<CmcOverview["feeds"]> = {};
   for (const [name] of entries) feeds[name] = { status: "pending", updatedAt: null };

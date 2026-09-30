@@ -21,6 +21,20 @@ export function mergeMarket(previous: CmcOverview | null, incoming: CmcOverview)
   return next;
 }
 
+/** A slow feed must not turn successfully received feeds into a board-wide error. */
+export function finishInterruptedMarket(data: CmcOverview, message: string): CmcOverview {
+  const pending = Object.entries(data.feeds ?? {}).filter(([, feed]) => feed.status === "pending");
+  if (!pending.length) return data;
+  const feeds = { ...data.feeds };
+  for (const [name] of pending) feeds[name] = { status: "error", updatedAt: null, message };
+  return {
+    ...data,
+    feeds,
+    health: Object.values(feeds).some(feed => feed.status === "ok") ? "partial" : "unavailable",
+    errors: [...data.errors, ...pending.map(([name]) => `${name}: ${message}`)],
+  };
+}
+
 export async function readMarketStream(response: Response, receive: (data: CmcOverview, done: boolean) => void) {
   if (!response.ok || !response.body) throw new Error("Market connection failed. Try again.");
   const reader = response.body.getReader();

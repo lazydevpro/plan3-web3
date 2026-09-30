@@ -1,8 +1,10 @@
 "use client";
+/* Fetching and subscribing to market data intentionally updates state from an effect. */
+/* eslint-disable react-hooks/set-state-in-effect */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CmcOverview } from "@/lib/cmc";
-import { mergeMarket, readMarketStream } from "@/lib/market-stream";
+import { finishInterruptedMarket, mergeMarket, readMarketStream } from "@/lib/market-stream";
 
 type MarketState = {
   data: CmcOverview | null;
@@ -12,9 +14,13 @@ type MarketState = {
 };
 
 export function useCmcMarket() {
-  const [expanded, setExpanded] = useState(false);
+  const [feedScope, setFeedScope] = useState("core");
   const [state, setState] = useState<MarketState>({ data: null, loading: true, refreshing: false, error: null });
   const controller = useRef<AbortController | null>(null);
+  const setRequestedFeeds = useCallback((feeds: readonly string[] | null) => {
+    const selection = feeds === null ? "all" : [...new Set(feeds)].sort().join(",");
+    setFeedScope(selection === "assets,history,listings" ? "core" : selection);
+  }, []);
 
   const load = useCallback(async (refreshing = false) => {
     controller.current?.abort();
@@ -24,22 +30,30 @@ export function useCmcMarket() {
       setState(current => ({ ...current, loading: false, refreshing: false, error: "You’re offline. Your local board is editable; market values may be stale. Reconnect to refresh." }));
       return;
     }
-    setState((current) => ({ ...current, loading: !current.data, refreshing, error: null }));
+    setState((current) => ({ ...current, loading: !current.data, refreshing: refreshing || !!current.data, error: null }));
+    let receivedProgress = false;
+    const finishFailure = (message: string) => setState(current => {
+      const data = receivedProgress && current.data ? finishInterruptedMarket(current.data, message) : current.data;
+      const usable = receivedProgress && Object.values(data?.feeds ?? {}).some(feed => feed.status === "ok");
+      return { ...current, data, loading: false, refreshing: false, error: usable ? null : message };
+    });
     const timeout = window.setTimeout(() => {
       nextController.abort();
-      setState(current => ({ ...current, loading: false, refreshing: false, error: "The refresh timed out. Your board is safe; retry the data connection." }));
+      finishFailure("The refresh timed out. Your board is safe; retry the data connection.");
     }, 30_000);
     try {
-      const response = await fetch(`/api/cmc?scope=${expanded ? "all" : "core"}`, { signal: nextController.signal, cache: "no-store", headers: { Accept: "application/x-ndjson" } });
+      const query = feedScope === "core" ? "scope=core" : feedScope === "all" ? "scope=all" : `scope=all&feeds=${encodeURIComponent(feedScope)}`;
+      const response = await fetch(`/api/cmc?${query}`, { signal: nextController.signal, cache: "no-store", headers: { Accept: "application/x-ndjson" } });
       await readMarketStream(response, (payload, done) => {
         if (nextController.signal.aborted) return;
+        receivedProgress = true;
         setState(current => ({ data: mergeMarket(current.data, payload), loading: false, refreshing: !done, error: done && payload.health === "unavailable" ? "CoinMarketCap is unavailable. Last-known values are retained; retry shortly." : null }));
       });
     } catch (error) {
       if (nextController.signal.aborted) return;
-      setState((current) => ({ ...current, loading: false, refreshing: false, error: error instanceof Error ? error.message : "Market data could not be loaded" }));
+      finishFailure(error instanceof Error ? error.message : "Market data could not be loaded");
     } finally { window.clearTimeout(timeout); }
-  }, [expanded]);
+  }, [feedScope]);
 
   useEffect(() => {
     void load();
@@ -58,5 +72,5 @@ export function useCmcMarket() {
     };
   }, [load]);
 
-  return { ...state, setExpanded, retry: () => load(true) };
+  return { ...state, setRequestedFeeds, retry: () => load(true) };
 }

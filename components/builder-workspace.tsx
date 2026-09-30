@@ -34,6 +34,7 @@ import {
   ZoomIn,
 } from "lucide-react";
 import type { useCmcMarket } from "@/hooks/use-cmc-market";
+import { PRESET_FEEDS } from "@/lib/widget-feeds";
 import {
   BOARD_STORAGE_KEY,
   defaultBoard,
@@ -189,8 +190,20 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   ];
   const activeBlock = board.blocks.find((b) => b.id === selected);
   const editable = !readOnly && !live;
-  const setExpanded = market.setExpanded;
-  useEffect(() => { setExpanded(board.blocks.some(b => b.kind === "preset") || (panel === "library" && libraryMode === "feeds") || panel === "health"); }, [board.blocks, panel, libraryMode, setExpanded]);
+  const setRequestedFeeds = market.setRequestedFeeds;
+  useEffect(() => {
+    if ((panel === "library" && libraryMode === "feeds") || board.blocks.some(block => block.kind === "preset" && block.config.preset === "capabilities")) {
+      setRequestedFeeds(null);
+      return;
+    }
+    const feeds = new Set(["assets", "listings", "history"]);
+    for (const block of board.blocks) {
+      if (block.kind === "preset" && block.config.preset) {
+        for (const feed of PRESET_FEEDS[block.config.preset]) feeds.add(feed);
+      }
+    }
+    setRequestedFeeds([...feeds]);
+  }, [board.blocks, panel, libraryMode, setRequestedFeeds]);
   useEffect(() => {
     if (panel) {
       if (!panelTrigger.current?.isConnected && !panelRef.current?.contains(document.activeElement)) panelTrigger.current = document.activeElement as HTMLElement;

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { getCmcOverview } from "../lib/cmc.ts";
-import { mergeMarket, readMarketStream } from "../lib/market-stream.ts";
+import { finishInterruptedMarket, mergeMarket, readMarketStream } from "../lib/market-stream.ts";
 
 test("fast CMC feeds publish before the slowest feed settles", async () => {
   const originalFetch = globalThis.fetch, originalKey = process.env.CMC_PRO_API_KEY;
@@ -43,6 +43,35 @@ test("market stream handles split packets and rejects interrupted connections", 
   assert.equal(received.length, 2);
   assert.equal(received[1].done, true);
   await assert.rejects(readMarketStream(new Response('{"data":{},"done":false}\n'), () => {}), /interrupted/);
+});
+
+test("a board requests only its feeds and a slow unrelated feed does not invalidate successful data", async () => {
+  const originalFetch = globalThis.fetch, originalKey = process.env.CMC_PRO_API_KEY, originalNow = Date.now;
+  process.env.CMC_PRO_API_KEY = "test-only-placeholder";
+  Date.now = () => originalNow() + 1_000_000;
+  const requested = [];
+  try {
+    globalThis.fetch = async url => {
+      requested.push(String(url));
+      return Response.json({ status: { timestamp: "2026-09-30T00:00:00Z" }, data: [] });
+    };
+    const boardData = await getCmcOverview("all", undefined, ["assets", "global", "notAFeed"]);
+    assert.deepEqual(Object.keys(boardData.feeds), ["assets", "global"]);
+    assert.equal(requested.length, 2);
+    const interrupted = finishInterruptedMarket({
+      ...boardData,
+      feeds: { ...boardData.feeds, rwaIssuers: { status: "pending", updatedAt: null } },
+    }, "Timed out");
+    assert.equal(interrupted.health, "partial");
+    assert.equal(interrupted.feeds.assets.status, "ok");
+    assert.equal(interrupted.feeds.rwaIssuers.status, "error");
+    assert.match(interrupted.errors.at(-1), /rwaIssuers: Timed out/);
+    assert.equal(boardData.feeds.rwaIssuers, undefined, "the source snapshot must remain unchanged");
+  } finally {
+    globalThis.fetch = originalFetch;
+    Date.now = originalNow;
+    if (originalKey === undefined) delete process.env.CMC_PRO_API_KEY; else process.env.CMC_PRO_API_KEY = originalKey;
+  }
 });
 
 test("CMC distinguishes total outage from partial success, and every request is bounded", async () => {
