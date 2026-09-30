@@ -1,12 +1,136 @@
 # Plan3
 
-Plan3 is a collaborative Web3 research canvas with draggable market-data widgets,
-CoinMarketCap-powered feeds, and optional AI research. The application is built
-with Next.js and Vinext. The public Cloudflare Pages deployment uses Pages
-Functions advanced mode so the `/api/cmc` route runs server-side; a static-only
-Pages export would not support live market data.
+Plan3 is a customizable Web3 research canvas. Traders can assemble, move, and
+resize market-data widgets, switch the board asset, and keep their research
+context together. CoinMarketCap (CMC) data powers the market widgets; Plan3 is
+not a trade-execution service or an autonomous trading agent.
+
+## Build with CMC submission
+
+**Selected track:** Data and Visualisation.
+
+| Item | Link or status |
+| --- | --- |
+| Live demo | [plan3-web3.pages.dev](https://plan3-web3.pages.dev/) |
+| Source repository | [github.com/lazydevpro/plan3-web3](https://github.com/lazydevpro/plan3-web3) — public |
+| Demo video | A 58-second product walkthrough exists locally in `outputs/plan3-demo-v1/`; **public video link pending** |
+| DoraHacks entry | [dorahacks.io/build/49274](https://dorahacks.io/build/49274) |
+| X post | **Pending:** link the DoraHacks entry and public demo video, include `#BuildwithCMC`, then add the post URL here |
+
+The deployed site is the interactive demo. To see the CMC integration, open a
+market-data board, add or inspect a market widget, and change the board asset.
+The backend response is also inspectable at
+[`/api/cmc?scope=core`](https://plan3-web3.pages.dev/api/cmc?scope=core)
+or [`/api/cmc?scope=all`](https://plan3-web3.pages.dev/api/cmc?scope=all).
+The `core` route loads quotes, listings, and daily history; `all` requests the
+additional feeds below. A feed can fail independently without hiding the other
+widgets. The `feeds` and `health` fields expose that state.
+
+The walkthrough is an animated product video using real app captures, not an
+unedited screen recording or proof of a live AI response. The AI research
+endpoint is disabled on the public Pages deployment until authentication and
+production model configuration are in place. Do not treat its illustrated AI
+workflow as a currently working public feature.
+
+### CMC endpoints used
+
+The paths below are actual calls configured in [`lib/cmc.ts`](lib/cmc.ts), not
+an API wishlist. Query parameters select assets, time windows, and USD
+conversion. The server calls CMC with `X-CMC_PRO_API_KEY` from its environment;
+the browser receives a normalized response through [`app/api/cmc/route.ts`](app/api/cmc/route.ts).
+
+| Purpose | CMC Pro API endpoints |
+| --- | --- |
+| Prices, rankings, history, profiles, conversion | `/v3/cryptocurrency/quotes/latest`, `/v3/cryptocurrency/listings/latest`, `/v3/cryptocurrency/quotes/historical`, `/v2/cryptocurrency/info`, `/v2/tools/price-conversion` |
+| Market context and benchmarks | `/v1/global-metrics/quotes/latest`, `/v3/fear-and-greed/latest`, `/v1/altcoin-season-index/latest`, `/v1/cryptocurrency/categories`, `/v3/index/cmc20-latest`, `/v3/index/cmc100-latest` |
+| Directories and plan usage | `/v1/exchange/map`, `/v1/fiat/map`, `/v1/key/info` |
+| Derivatives and liquidations | `/v5/derivatives/liquidations/quotes/latest`, `/v5/cryptocurrency/derivatives/market-pairs/list/latest`, `/v5/exchange/derivatives/list`, `/v5/derivatives/liquidations/cryptocurrency/list/latest`, `/v5/derivatives/liquidations/exchange/list/latest` |
+| DEX token research | `/v1/dex/token`, `/v1/dex/security/detail`, `/v1/dex/holders/count`, `/v1/dex/tokens/transactions`, `/v1/dex/liquidity-change/list` |
+| Real-world assets | `/v5/real-world-assets/assets/list`, `/v5/real-world-assets/quotes/latest`, `/v5/real-world-assets/issuers/list` |
+
+**Live verification:** On 29 September 2026, the deployed `scope=all` response
+reported `health: "healthy"`, `mode: "full"`, and `status: "ok"` for all 27
+configured feeds. This is a point-in-time check, not an uptime guarantee; the
+current feed status is visible in the live response.
+
+### Real API call: code and response
+
+The application makes the authenticated upstream call server-side. This is the
+relevant code path, shortened from [`requestCmc`](lib/cmc.ts):
+
+```ts
+const response = await fetch(`https://pro-api.coinmarketcap.com${path}`, {
+  headers: {
+    Accept: "application/json",
+    "X-CMC_PRO_API_KEY": apiKey,
+  },
+});
+const payload = await response.json();
+```
+
+For a direct reproduction with your own exported `CMC_PRO_API_KEY` (never put
+the key in a URL, screenshot, or commit):
+
+```sh
+curl -sS 'https://pro-api.coinmarketcap.com/v3/cryptocurrency/quotes/latest?id=1&convert=USD' \
+  -H "X-CMC_PRO_API_KEY: $CMC_PRO_API_KEY" \
+  -H 'Accept: application/json'
+```
+
+An authenticated call to that exact endpoint returned HTTP 200 on
+**29 September 2026 at 05:15:42 UTC**. Selected public fields from the actual
+response are shown below; unrelated response fields are omitted, and no API key
+is included:
+
+```json
+{
+  "status": {
+    "timestamp": "2026-09-29T05:15:42.598Z",
+    "error_code": "0",
+    "credit_count": 1
+  },
+  "data": [
+    {
+      "id": 1,
+      "name": "Bitcoin",
+      "symbol": "BTC",
+      "quote": [
+        {
+          "price": 83222.6275761438,
+          "last_updated": "2026-09-29T05:13:59.000Z"
+        }
+      ]
+    }
+  ]
+}
+```
+
+The live Plan3 proxy returned `health: "healthy"` and `mode: "full"` for
+[`scope=core`](https://plan3-web3.pages.dev/api/cmc?scope=core) on the same day,
+with `assets`, `listings`, and `history` feeds all reporting `status: "ok"`.
+Prices and timestamps will change.
+
+### What the API made possible — and what got in the way
+
+CMC let us put quotes, historical comparisons, market-wide context, DEX token
+signals, derivatives, and RWA data on one editable canvas, with a single asset
+selection driving related widgets. The harder parts were differing response
+shapes across endpoint families, partial feed availability, caching and credit
+budgets, and keeping the key server-side while making failures visible to users.
+Plan-dependent endpoint access means a board can be only partially populated.
+
+The event's free Startup-tier access [ends when submissions close on
+30 September 2026 at 23:59 UTC](https://coinmarketcap.com/api/resources/api-hackathon/).
+Without a continuing paid plan or grant, some full-tier widgets may stop
+receiving live data during judging. The live demo and `feeds` status should be
+rechecked after that deadline; the video preserves the working state but does
+not replace a live-data test.
 
 ## Run and deploy
+
+The application is built with Next.js and Vinext. The Cloudflare Pages
+deployment uses Pages Functions advanced mode so `/api/cmc` runs server-side;
+a static-only export would not support live market data.
 
 1. Use Node.js 22.13 or later and run `npm ci`.
 2. Copy `.env.example` to `.env`, then set `CMC_PRO_API_KEY` locally. Never commit
