@@ -114,7 +114,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
   const [live, setLive] = useState(false);
   const [panel, setPanel] = useState<Panel>(null);
   const [listView, setListView] = useState(false);
-  const [libraryMode, setLibraryMode] = useState<"instruments" | "feeds">("instruments");
+  const [libraryMode, setLibraryMode] = useState<"instruments" | "trading" | "feeds">("instruments");
   const [setupComplete, setSetupComplete] = useState(false);
   const panelRef = useRef<HTMLElement>(null);
   const panelTrigger = useRef<HTMLElement | null>(null);
@@ -297,6 +297,11 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     setSelected(isNew ? null : block.id);
     setTarget("");
     setPanel("edit");
+  }
+  function openLibrary() {
+    setLibraryMode("instruments");
+    setQuery("");
+    setPanel("library");
   }
   function add(block: Block) {
     if (board.blocks.length >= 100)
@@ -799,6 +804,19 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
     setProposalBase(null);
   }
 
+  const search = query.trim().toLowerCase();
+  const instrumentKinds = KINDS.filter(kind =>
+    kind !== "preset" && kind !== "jupiter" && kind !== "lifi" &&
+    kindLabels[kind].toLowerCase().includes(search),
+  );
+  const tradingKinds = (["jupiter", "lifi"] as const).filter(kind =>
+    `${kindLabels[kind]} ${kind === "jupiter" ? "solana exchange swap" : "cross-chain exchange bridge swap"}`.toLowerCase().includes(search),
+  );
+  const cmcWidgets = catalog.filter(item =>
+    `${item.name} ${item.detail}`.toLowerCase().includes(search),
+  );
+  const hasLibraryResults = instrumentKinds.length + tradingKinds.length + cmcWidgets.length > 0;
+
   if (!ready)
     return <div className="studio-loading">Opening your workspace…</div>;
   return (
@@ -839,10 +857,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
           ) : (
             <button
               className="studio-primary"
-              onClick={() => {
-                setLive(false);
-                openEditor(makeBlock("metric"), true);
-              }}
+              onClick={openLibrary}
             >
               <Plus />
               Create widget
@@ -1088,7 +1103,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     {!readOnly && (
                       <button
                         className="studio-primary"
-                        onClick={() => openEditor(makeBlock("metric"), true)}
+                        onClick={openLibrary}
                       >
                         <Plus />
                         Create your first widget
@@ -1260,7 +1275,7 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
               <>
                 <div className="studio-panel-intro">
                   <p>
-                    Instruments have editable calculations and asset bindings. CMC feeds provide specialist views with a fixed scope.
+                    Build with editable instruments, CMC feeds, or embedded swap and bridge tools. Exchange tools stay inactive until you choose to activate them.
                   </p>
                   <button
                     disabled={!editable}
@@ -1271,30 +1286,31 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                     Create custom widget
                   </button>
                 </div>
-                <div className="studio-library-modes" role="group" aria-label="Widget category"><button aria-pressed={libraryMode === "instruments"} onClick={() => { setLibraryMode("instruments"); setQuery(""); }}>Your instruments</button><button aria-pressed={libraryMode === "feeds"} onClick={() => { setLibraryMode("feeds"); setQuery(""); }}>CMC feeds</button></div>
+                <div className="studio-library-modes" role="group" aria-label="Widget category">
+                  <button aria-pressed={libraryMode === "instruments"} onClick={() => { setLibraryMode("instruments"); setQuery(""); }}>Instruments</button>
+                  <button aria-pressed={libraryMode === "trading"} onClick={() => { setLibraryMode("trading"); setQuery(""); }}>Swap & bridge</button>
+                  <button aria-pressed={libraryMode === "feeds"} onClick={() => { setLibraryMode("feeds"); setQuery(""); }}>CMC feeds</button>
+                </div>
                 <label className="studio-search">
                   <Search />
                   <input
                     type="search"
-                    placeholder={libraryMode === "feeds" ? "Search CMC feeds…" : "Search instruments…"}
+                    placeholder="Search all widgets…"
                     aria-label="Search widgets"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
                 </label>
                 <div className="studio-preset-list">
-                  {libraryMode === "instruments" ? <>
-                    {KINDS.filter(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())).map(kind => <div className="studio-preset" key={kind}><div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => openEditor(makeBlock(kind), true)}>Customize</button></div><div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} preview /></div><p>{["jupiter", "lifi"].includes(kind) ? "Official integration · activate on your board" : "Independent settings · preview before adding"}</p></div>)}
-                    {!KINDS.some(kind => kind !== "preset" && kindLabels[kind].toLowerCase().includes(query.toLowerCase())) && <p>No instruments match. Try “chart”, “condition”, or “note”.</p>}
-                  </> : <>
-                  {!catalog.some(c => `${c.name} ${c.detail}`.toLowerCase().includes(query.toLowerCase())) && <div className="studio-panel-intro"><h3>No matching widgets</h3><p>Try “price”, “volume”, or build your own instrument.</p><button onClick={() => setQuery("")}>Clear search</button></div>}
-                  {catalog
-                    .filter((c) =>
-                      `${c.name} ${c.detail}`
-                        .toLowerCase()
-                        .includes(query.toLowerCase()),
-                    )
-                    .map((c) => (
+                  {search && <p className="studio-search-scope">Results across instruments, swap & bridge, and CMC feeds</p>}
+                  {!hasLibraryResults && <div className="studio-panel-intro"><h3>No matching widgets</h3><p>Try “Jupiter”, “bridge”, “price”, or “condition”.</p><button onClick={() => setQuery("")}>Clear search</button></div>}
+                  {(libraryMode === "instruments" || !!search) && instrumentKinds.map(kind => <div className="studio-preset" key={kind}><div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => openEditor(makeBlock(kind), true)}>Customize</button></div><div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} preview /></div><p>Independent settings · preview before adding</p></div>)}
+                  {(libraryMode === "trading" || !!search) && tradingKinds.map(kind => <div className="studio-preset" key={kind}>
+                    <div><strong>{kindLabels[kind]}</strong><button disabled={!editable} onClick={() => add(makeBlock(kind))}><Plus aria-hidden="true" /> Add to board</button></div>
+                    <div className="studio-preset-preview" inert><BuilderWidget block={makeBlock(kind)} board={board} data={market.data} loading={market.loading} failed={!!market.error} preview /></div>
+                    <p>Official integration · opens only when you activate it on your board. Wallet connection and every signature require your approval.</p>
+                  </div>)}
+                  {(libraryMode === "feeds" || !!search) && cmcWidgets.map((c) => (
                       <div className="studio-preset" key={c.id}>
                         <div>
                           <strong>{c.name}</strong>
@@ -1318,7 +1334,6 @@ export function BuilderWorkspace({ market, catalog, renderPreset }: Props) {
                         </p>
                       </div>
                     ))}
-                  </>}
                 </div>
               </>
             )}

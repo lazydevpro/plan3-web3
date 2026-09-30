@@ -24,8 +24,10 @@
 .research-receipt { display: grid; gap: 8px; padding: 16px; border: 1px solid var(--border); background: var(--surface-raised); border-radius: 6px; font-size: 13px; line-height: 1.5; }
 .studio-guide > details { margin: 24px 0; }
 .studio summary { cursor: pointer; padding: 10px 0; font-size: 14px; }
-.studio-library-modes { display: flex; gap: 8px; padding: 0 16px; }
+.studio-library-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; padding: 0 16px; }
+.studio-library-modes button { min-height: 40px; padding: 6px; white-space: normal; line-height: 1.25; }
 .studio-library-modes button[aria-pressed="true"] { background: var(--copper-soft); color: var(--foreground); }
+.studio-search-scope { margin: 0; color: var(--muted-foreground); font-size: 11px !important; }
 .studio .studio-panel-footer { flex-wrap: wrap; }
 .studio-form-error { width: 100%; color: var(--destructive); font-size: 14px; }
 .studio-list-view .studio-scaled { width: 100% !important; height: auto !important; }
