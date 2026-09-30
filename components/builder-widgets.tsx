@@ -70,7 +70,12 @@ export function BuilderWidget({
     .join(" ");
   const state = evaluateRule(block, board, data, now, failed);
   const feed = data?.assets.some(a => a.symbol === symbol) ? "assets" : "listings";
-  const requiredFeeds = ["note", "source"].includes(block.kind) ? [] : block.kind === "chart" ? [feed, "history"] : ["table", "ranking"].includes(block.kind) ? ["listings", "assets"] : [feed];
+  const tableUsesCoreAssets = block.kind === "table" && c.symbols.every(selected => data?.assets.some(asset => asset.symbol === selected));
+  const requiredFeeds = ["note", "source"].includes(block.kind) ? []
+    : block.kind === "chart" ? [feed, "history"]
+    : block.kind === "table" ? tableUsesCoreAssets ? ["assets"] : ["assets", "listings"]
+    : block.kind === "ranking" ? ["listings"]
+    : [feed];
   const pending = requiredFeeds.some(name => data?.feeds?.[name]?.status === "pending");
   const stale =
     failed ||
